@@ -1,0 +1,29 @@
+{
+  "name": "polygon-office-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "convert": "blender --background --factory-startup --python tools/fbx_to_glb.py",
+    "postinstall": "node tools/copy-draco.js",
+    "start": "node server.js",
+    "convert:todos": "npm run convert && npm run convert:personagens && npm run convert:retratos",
+    "convert:retratos": "blender --background --factory-startup --python tools/retratos.py",
+    "convert:personagens": "for c in Business_Male_01 Business_Female_01 Developer_Male_01 Developer_Female_01 Boss_Male_01 Security_Female_01; do blender --background --factory-startup --python tools/personagem_to_glb.py -- --personagem SK_Chr_$c --saida personagens/$c.glb || exit 1; done"
+  },
+  "dependencies": {
+    "lucide": "^1.31.0",
+    "ws": "^8.21.3"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "devDependencies": {
+    "three": "^0.185.1",
+    "three-mesh-bvh": "^0.9.14",
+    "vite": "^5.4.21"
+  }
+}

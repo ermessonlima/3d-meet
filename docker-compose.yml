@@ -1,0 +1,75 @@
+# POLYGON Office
+#
+#   cp .env.example .env     # preencha OPENAI_API_KEY
+#   docker compose up --build
+#   http://localhost:4173
+#
+# Um serviço só, e isso é uma restrição real, não preguiça: as salas vivem na
+# memória do processo. Com duas réplicas, jogadores da mesma sala caem em
+# processos diferentes e não se enxergam. Para escalar seria preciso mover as
+# salas para um Redis e usar sessões fixas -- reescrita, não configuração.
+
+services:
+  jogo:
+    build:
+      context: .
+      target: runtime
+    image: poligono-office:latest
+
+    ports:
+      - "${PORTA_EXTERNA:-4173}:4173"
+
+    # env_file em vez de `environment`: assim a chave fica só no .env, que o
+    # .gitignore já protege e o .dockerignore mantém fora da imagem. Passá-la
+    # por build arg a gravaria numa camada, legível para sempre.
+    #
+    # required: false porque só o chat do NPC depende da chave. O cenário, o
+    # personagem e o multiplayer funcionam sem ela, e o proxy já responde
+    # explicando o que falta. Sem isto, o compose se recusa a subir a pilha
+    # inteira por causa de um arquivo ausente.
+    env_file:
+      - path: .env
+        required: false
+
+    environment:
+      NODE_ENV: production
+      PORT: 4173
+
+    restart: unless-stopped
+
+    # O Docker manda SIGTERM e espera. Como o node é PID 1, ele recebe o sinal
+    # na hora; 20 s dão folga para as conexões WebSocket fecharem limpas.
+    stop_grace_period: 20s
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:'+process.env.PORT+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    # Defesa em profundidade: o processo não escreve nada em disco, então o
+    # sistema de arquivos pode ser somente leitura, e ele nunca precisa ganhar
+    # privilégios novos.
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+
+    # Um cenário de 363 mil faces e até 12 jogadores por sala cabem folgados
+    # aqui; o teto existe para um vazamento não levar a máquina junto.
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,24 @@
+# Reinstalado dentro da imagem, e um node_modules de macOS quebraria binários
+# nativos dentro de um contêiner Linux.
+node_modules
+
+# Gerado no estágio de build.
+dist
+
+# NUNCA entra na imagem. A chave vem por variável de ambiente em tempo de
+# execução; copiada para cá, ficaria gravada numa camada legível por qualquer
+# um que baixasse a imagem.
+.env
+.env.local
+.env.*.local
+
+.git
+.gitignore
+.DS_Store
+Dockerfile
+docker-compose.yml
+.dockerignore
+README.md
+
+# Só servem para gerar os .glb, e isso roda no Blender, fora do contêiner.
+tools/*.py

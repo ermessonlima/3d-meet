@@ -1,0 +1,1209 @@
+/*
+ * Sistema visual.
+ *
+ * Duas decisões guiam o resto:
+ *
+ * 1. Tipografia. A interface usa a fonte do sistema, e a monoespaçada fica
+ *    reservada para dados literais: código da sala, contadores do HUD, teclas.
+ *    Antes era tudo monoespaçado, o que faz qualquer produto parecer terminal
+ *    de depuração.
+ *
+ * 2. Camadas de superfície nomeadas em vez de hexadecimais soltos. Painéis que
+ *    flutuam sobre a cena 3D precisam de contraste previsível contra QUALQUER
+ *    fundo -- e a cena vai de parede branca a corredor escuro.
+ */
+
+:root {
+  /* Superfícies, do fundo para a frente. */
+  --sup-0: #0b0e14;
+  --sup-1: #11151d;
+  --sup-2: #171c27;
+  --sup-3: #1e2532;
+
+  --borda: #262d3b;
+  --borda-forte: #333c4d;
+
+  /* Texto, do mais forte ao mais discreto. */
+  --txt-1: #e7ecf5;
+  --txt-2: #a3adc0;
+  --txt-3: #6c7689;
+
+  --acento: #5b9dff;
+  --acento-suave: rgba(91, 157, 255, 0.14);
+  --perigo: #ff8a8a;
+  --sucesso: #62d29a;
+
+  --raio-p: 6px;
+  --raio-m: 10px;
+  --raio-g: 14px;
+
+  --sombra-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sombra-2: 0 8px 24px -6px rgba(0, 0, 0, 0.55);
+  --sombra-3: 0 24px 64px -12px rgba(0, 0, 0, 0.7);
+
+  --vidro: saturate(150%) blur(14px);
+
+  --ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--sup-0);
+  color: var(--txt-1);
+  font-family: var(--ui);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font-family: inherit;
+}
+
+/* Foco visível só para quem navega por teclado: acessibilidade sem poluir o
+   visual de quem usa mouse. */
+:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+}
+
+#palco {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+
+/* Alinha os SVGs do Lucide com o texto ao lado. */
+i[data-icone] {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+i[data-icone] svg {
+  display: block;
+}
+
+/* ==================================================== overlays de estado */
+
+#carregando,
+#erro {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--sup-0);
+  z-index: 30;
+  transition: opacity 0.45s ease;
+}
+
+#carregando[hidden],
+#erro[hidden] {
+  display: none;
+}
+
+#carregando.saindo {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.caixa {
+  width: min(320px, 80vw);
+  text-align: center;
+}
+
+.titulo {
+  margin: 0 0 18px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--txt-2);
+}
+
+.barra {
+  height: 3px;
+  background: var(--sup-2);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.preenchimento {
+  height: 100%;
+  width: 0%;
+  background: var(--acento);
+  border-radius: 99px;
+  transition: width 0.25s ease;
+}
+
+.percentual {
+  margin: 12px 0 0;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--txt-3);
+  font-variant-numeric: tabular-nums;
+}
+
+#erro .titulo {
+  color: var(--perigo);
+}
+
+#erro .detalhe {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--txt-2);
+  word-break: break-word;
+}
+
+/* ================================================================== hud */
+
+#hud {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: var(--raio-p);
+  background: rgba(11, 14, 20, 0.7);
+  backdrop-filter: var(--vidro);
+  border: 1px solid var(--borda);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  color: var(--txt-3);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#hud[hidden],
+#dica[hidden] {
+  display: none;
+}
+
+#hud .separador {
+  width: 1px;
+  height: 10px;
+  background: var(--borda);
+}
+
+/* ========================================================== tela inicial */
+
+#lobby {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow-y: auto;
+  background: radial-gradient(80% 55% at 50% -8%, #1a2334 0%, transparent 70%),
+    var(--sup-0);
+  display: grid;
+  place-items: start center;
+  padding: 6vh 20px 8vh;
+}
+
+#lobby[hidden] {
+  display: none;
+}
+
+#lobby .folha {
+  width: min(460px, 100%);
+}
+
+#lobby .marca {
+  margin-bottom: 34px;
+}
+
+#lobby h1 {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+#lobby .marca p {
+  margin: 5px 0 0;
+  font-size: 0.86rem;
+  color: var(--txt-3);
+}
+
+#lobby .bloco {
+  margin-bottom: 22px;
+}
+
+#lobby h2 {
+  margin: 0 0 10px;
+}
+
+.rotulo {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--txt-2);
+  margin-bottom: 7px;
+}
+
+#lobby .campo {
+  display: block;
+  margin-bottom: 16px;
+}
+
+#lobby .ajuda {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.72rem;
+  color: var(--txt-3);
+}
+
+input[type="text"],
+input[type="password"] {
+  width: 100%;
+  font-size: 0.88rem;
+  color: var(--txt-1);
+  background: var(--sup-1);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-p);
+  padding: 10px 12px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+input::placeholder {
+  color: var(--txt-3);
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus {
+  outline: none;
+  border-color: var(--acento);
+  background: var(--sup-2);
+}
+
+#lobby .codigo {
+  font-family: var(--mono);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+#lobby .cartas {
+  display: grid;
+  /* Três colunas fixas: com auto-fit os seis personagens caíam em 5 + 1, e a
+     carta órfã na segunda linha desequilibra o bloco inteiro. */
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 420px) {
+  #lobby .cartas {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+#lobby .carta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px 7px;
+  background: var(--sup-1);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-m);
+  cursor: pointer;
+  font-size: 0.68rem;
+  color: var(--txt-3);
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+#lobby .carta img {
+  width: 100%;
+  max-width: 68px;
+  height: auto;
+  display: block;
+}
+
+#lobby .carta:hover {
+  border-color: var(--borda-forte);
+  color: var(--txt-2);
+}
+
+#lobby .carta[aria-pressed="true"] {
+  border-color: var(--acento);
+  background: var(--acento-suave);
+  color: var(--txt-1);
+}
+
+#lobby .cores {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+#lobby .cor {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--c);
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 1px var(--borda);
+  cursor: pointer;
+  padding: 0;
+  transition: box-shadow 0.15s ease, transform 0.12s ease;
+}
+
+#lobby .cor:hover {
+  transform: scale(1.08);
+}
+
+#lobby .cor[aria-pressed="true"] {
+  border-color: var(--sup-0);
+  box-shadow: 0 0 0 2px var(--txt-1);
+}
+
+#lobby .abas {
+  display: flex;
+  gap: 2px;
+  margin: 28px 0 18px;
+  border-bottom: 1px solid var(--borda);
+}
+
+#lobby .abas button {
+  font-size: 0.82rem;
+  color: var(--txt-3);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 9px 14px;
+  cursor: pointer;
+  margin-bottom: -1px;
+  transition: color 0.15s ease;
+}
+
+#lobby .abas button:hover {
+  color: var(--txt-2);
+}
+
+#lobby .abas button[aria-selected="true"] {
+  color: var(--txt-1);
+  border-bottom-color: var(--acento);
+}
+
+#lobby .painel[hidden] {
+  display: none;
+}
+
+#lobby .principal {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #0a0e15;
+  background: var(--acento);
+  border: none;
+  border-radius: var(--raio-p);
+  padding: 12px;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: filter 0.15s ease;
+}
+
+#lobby .principal:hover {
+  filter: brightness(1.07);
+}
+
+#lobby button:disabled {
+  opacity: 0.45;
+  cursor: progress;
+  filter: none;
+}
+
+#lb-erro {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  font-size: 0.78rem;
+  color: var(--perigo);
+  background: rgba(255, 138, 138, 0.08);
+  border: 1px solid rgba(255, 138, 138, 0.25);
+  border-radius: var(--raio-p);
+}
+
+#lb-erro[hidden] {
+  display: none;
+}
+
+/* ====================================================== painel da sala */
+
+#painel-sala {
+  position: fixed;
+  top: 52px;
+  left: 14px;
+  min-width: 172px;
+  padding: 11px 13px;
+  border-radius: var(--raio-m);
+  background: rgba(11, 14, 20, 0.7);
+  backdrop-filter: var(--vidro);
+  border: 1px solid var(--borda);
+  box-shadow: var(--sombra-1);
+  font-size: 0.76rem;
+  z-index: 5;
+}
+
+#painel-sala[hidden] {
+  display: none;
+}
+
+#painel-sala .linha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#painel-sala .rotulo {
+  margin: 0;
+  font-size: 0.66rem;
+  color: var(--txt-3);
+}
+
+#painel-sala strong {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  letter-spacing: 0.14em;
+  font-weight: 500;
+  color: var(--txt-1);
+}
+
+#painel-sala .contagem {
+  margin-top: 10px;
+  color: var(--txt-3);
+  font-size: 0.7rem;
+}
+
+#copiar-convite {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.68rem;
+  color: var(--txt-3);
+  background: none;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-p);
+  padding: 3px 8px;
+  cursor: pointer;
+  margin-left: auto;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+#copiar-convite:hover {
+  color: var(--txt-1);
+  border-color: var(--borda-forte);
+}
+
+#copiar-convite.feito {
+  color: var(--sucesso);
+  border-color: rgba(98, 210, 154, 0.4);
+}
+
+#sala-jogadores {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+#sala-jogadores li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.76rem;
+  color: var(--txt-2);
+}
+
+#sala-jogadores li::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c, var(--txt-3));
+  flex: 0 0 auto;
+}
+
+/* =========================================== controles de modo e dica */
+
+#controles {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+}
+
+#controles[hidden] {
+  display: none;
+}
+
+#controles button {
+  font-size: 0.78rem;
+  color: var(--txt-2);
+  background: rgba(11, 14, 20, 0.7);
+  backdrop-filter: var(--vidro);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-p);
+  padding: 8px 13px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+#controles button:hover {
+  border-color: var(--borda-forte);
+  color: var(--txt-1);
+}
+
+#controles button[aria-pressed="true"] {
+  border-color: var(--acento);
+  color: var(--acento);
+  background: var(--acento-suave);
+}
+
+#dica {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  display: flex;
+  font-size: 0.74rem;
+  color: var(--txt-3);
+  background: rgba(11, 14, 20, 0.7);
+  backdrop-filter: var(--vidro);
+  border: 1px solid var(--borda);
+  padding: 7px 14px;
+  border-radius: var(--raio-p);
+  pointer-events: none;
+  z-index: 5;
+  white-space: nowrap;
+}
+
+#dica span[hidden] {
+  display: none;
+}
+
+kbd {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--txt-2);
+  background: var(--sup-2);
+  border: 1px solid var(--borda);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin: 0 4px 0 10px;
+}
+
+#dica span > kbd:first-child {
+  margin-left: 0;
+}
+
+@media (max-width: 860px) {
+  #dica {
+    display: none;
+  }
+}
+
+/* ====================================================== tiles de vídeo */
+
+#tiles {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  z-index: 7;
+  max-width: min(calc(100vw - 460px), 760px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+#tiles::-webkit-scrollbar {
+  display: none;
+}
+
+#tiles[hidden] {
+  display: none;
+}
+
+#tiles audio {
+  display: none;
+}
+
+.tile {
+  position: relative;
+  margin: 0;
+  width: 128px;
+  height: 96px;
+  flex: 0 0 auto;
+  border-radius: var(--raio-m);
+  overflow: hidden;
+  background: var(--sup-2);
+  border: 1px solid var(--borda);
+  box-shadow: var(--sombra-1);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+/* Anel na cor do participante enquanto ele fala. */
+.tile.falando {
+  border-color: var(--c);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 30%, transparent);
+}
+
+.tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: none;
+}
+
+.tile.com-video video {
+  display: block;
+}
+
+.tile.com-video .sem-video {
+  display: none;
+}
+
+.tile .sem-video {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 1.35rem;
+  font-weight: 500;
+  color: var(--c);
+  background: var(--sup-1);
+}
+
+.tile figcaption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 14px 8px 5px;
+  font-size: 0.68rem;
+  color: var(--txt-1);
+  background: linear-gradient(transparent, rgba(6, 8, 12, 0.88));
+}
+
+.tile figcaption .nome {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tile .icones {
+  display: flex;
+  gap: 4px;
+  color: var(--txt-2);
+  flex: 0 0 auto;
+}
+
+/* ================================================== tela compartilhada */
+
+#tela-compartilhada {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(68vw, 880px);
+  background: var(--sup-1);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-g);
+  overflow: hidden;
+  z-index: 9;
+  box-shadow: var(--sombra-3);
+}
+
+#tela-compartilhada[hidden] {
+  display: none;
+}
+
+#tela-compartilhada header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 0.78rem;
+  color: var(--txt-2);
+  border-bottom: 1px solid var(--borda);
+}
+
+#tela-compartilhada .quem {
+  color: var(--txt-1);
+  font-weight: 500;
+}
+
+#tela-compartilhada .quem::after {
+  content: " está compartilhando a tela";
+  color: var(--txt-3);
+  font-weight: 400;
+}
+
+#tela-compartilhada .fechar,
+#chat .fechar {
+  display: grid;
+  place-items: center;
+  color: var(--txt-3);
+  background: none;
+  border: none;
+  border-radius: var(--raio-p);
+  cursor: pointer;
+  padding: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+#tela-compartilhada .fechar:hover,
+#chat .fechar:hover {
+  color: var(--txt-1);
+  background: var(--sup-3);
+}
+
+#tela-compartilhada video {
+  display: block;
+  width: 100%;
+  max-height: 60vh;
+  background: #000;
+}
+
+/* ======================================================= chat da sala */
+
+#chat-sala {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: min(316px, 84vw);
+  display: flex;
+  flex-direction: column;
+  background: rgba(11, 14, 20, 0.9);
+  backdrop-filter: var(--vidro);
+  border-left: 1px solid var(--borda);
+  z-index: 8;
+}
+
+#chat-sala[hidden] {
+  display: none;
+}
+
+#chat-sala header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 15px 16px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--txt-1);
+  border-bottom: 1px solid var(--borda);
+}
+
+#chat-sala header i {
+  color: var(--txt-3);
+}
+
+#chat-sala .log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+#chat-sala .msg {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+#chat-sala .cabeca {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 0.72rem;
+}
+
+#chat-sala .quem {
+  font-weight: 500;
+}
+
+#chat-sala .cabeca time {
+  font-family: var(--mono);
+  color: var(--txt-3);
+  font-size: 0.64rem;
+}
+
+#chat-sala .msg p {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--txt-2);
+  word-break: break-word;
+}
+
+#chat-sala .msg.eu p {
+  color: var(--txt-1);
+}
+
+#chat-sala .sistema {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--txt-3);
+  text-align: center;
+}
+
+#chat-sala form,
+#chat form {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--borda);
+}
+
+#chat-sala form button,
+#chat form button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 38px;
+  color: var(--txt-2);
+  background: var(--sup-3);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-p);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+#chat-sala form button:hover,
+#chat form button:hover {
+  color: var(--acento);
+  border-color: var(--acento);
+}
+
+/* ===================================================== barra de mídia */
+
+#barra-midia {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 9;
+}
+
+#barra-midia[hidden] {
+  display: none;
+}
+
+#barra-midia button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.78rem;
+  color: var(--txt-2);
+  background: rgba(11, 14, 20, 0.78);
+  backdrop-filter: var(--vidro);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-p);
+  padding: 9px 13px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+#barra-midia button:hover:not(:disabled) {
+  border-color: var(--borda-forte);
+  color: var(--txt-1);
+}
+
+#barra-midia button[aria-pressed="true"] {
+  border-color: var(--acento);
+  color: var(--acento);
+  background: var(--acento-suave);
+}
+
+#barra-midia button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+#barra-midia .nao-lidas {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--acento);
+  color: #0a0e15;
+  font-size: 0.62rem;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--sup-0);
+}
+
+#barra-midia .nao-lidas[hidden] {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  #barra-midia .rotulo {
+    display: none;
+  }
+  #barra-midia button {
+    padding: 10px;
+  }
+  #tiles {
+    max-width: calc(100vw - 28px);
+  }
+}
+
+#aviso-midia {
+  position: fixed;
+  bottom: 72px;
+  right: 16px;
+  max-width: 300px;
+  margin: 0;
+  padding: 10px 13px;
+  border-radius: var(--raio-p);
+  background: rgba(11, 14, 20, 0.94);
+  border: 1px solid rgba(255, 138, 138, 0.3);
+  border-left: 2px solid var(--perigo);
+  color: var(--perigo);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  box-shadow: var(--sombra-2);
+  z-index: 10;
+}
+
+#aviso-midia[hidden] {
+  display: none;
+}
+
+/* ======================================================= falar no jogo */
+
+#falar {
+  position: fixed;
+  bottom: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 32px));
+  z-index: 7;
+}
+
+#falar[hidden] {
+  display: none;
+}
+
+#falar input {
+  background: rgba(11, 14, 20, 0.94);
+  backdrop-filter: var(--vidro);
+  border-color: var(--acento);
+  box-shadow: var(--sombra-2);
+}
+
+/* ================================================== interação com NPC */
+
+#aviso-interagir {
+  position: fixed;
+  bottom: 62px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  padding: 8px 14px 8px 10px;
+  border-radius: var(--raio-p);
+  background: rgba(11, 14, 20, 0.82);
+  backdrop-filter: var(--vidro);
+  border: 1px solid var(--borda);
+  font-size: 0.78rem;
+  color: var(--txt-1);
+  pointer-events: none;
+  z-index: 6;
+  box-shadow: var(--sombra-1);
+}
+
+#aviso-interagir[hidden] {
+  display: none;
+}
+
+#aviso-interagir kbd {
+  color: var(--acento);
+  border-color: rgba(91, 157, 255, 0.4);
+  background: var(--acento-suave);
+  margin-left: 0;
+}
+
+#chat {
+  position: fixed;
+  right: 16px;
+  bottom: 76px;
+  width: min(370px, calc(100vw - 32px));
+  max-height: min(440px, 58vh);
+  display: flex;
+  flex-direction: column;
+  background: rgba(11, 14, 20, 0.92);
+  backdrop-filter: var(--vidro);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-g);
+  overflow: hidden;
+  z-index: 8;
+  box-shadow: var(--sombra-2);
+}
+
+#chat[hidden] {
+  display: none;
+}
+
+#chat header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--borda);
+}
+
+#chat .nome {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--txt-1);
+}
+
+#chat .log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#chat .msg {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#chat .msg.eu {
+  color: var(--txt-1);
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--sup-3);
+  padding: 7px 11px;
+  border-radius: 10px 10px 2px 10px;
+}
+
+#chat .msg.npc {
+  color: var(--txt-2);
+}
+
+#chat .msg.npc strong {
+  color: var(--acento);
+  font-weight: 500;
+}
+
+#chat .msg.pensando {
+  color: var(--txt-3);
+  letter-spacing: 0.3em;
+}
+
+#chat .msg.erro {
+  color: var(--perigo);
+  font-size: 0.76rem;
+  border-left: 2px solid var(--perigo);
+  padding-left: 9px;
+}
+
+#chat input:disabled {
+  opacity: 0.5;
+}
+
+/* Barras de rolagem discretas nos painéis escuros. */
+.log {
+  scrollbar-width: thin;
+  scrollbar-color: var(--borda-forte) transparent;
+}
+
+.log::-webkit-scrollbar {
+  width: 8px;
+}
+
+.log::-webkit-scrollbar-thumb {
+  background: var(--borda-forte);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/*
+ * Faixa ocupada à direita.
+ *
+ * O chat lateral rouba uma coluna da tela. Tudo que é centrado precisa se
+ * centrar no que SOBRA, não na janela inteira -- e precisa encolher junto,
+ * senão transborda. Deslocar só o `left` de um elemento com
+ * `translate(-50%)` move o centro sem reduzir a largura: foi assim que o
+ * palco de tela compartilhada saiu pela borda esquerda.
+ *
+ * Uma variável só, lida por todos os interessados, mantém isso coerente.
+ */
+:root {
+  --painel-direito: 0px;
+}
+
+body.chat-aberto {
+  --painel-direito: min(316px, 84vw);
+}
+
+#barra-midia,
+#aviso-midia {
+  right: calc(var(--painel-direito) + 16px);
+}
+
+#tiles,
+#dica,
+#falar,
+#aviso-interagir {
+  left: calc((100vw - var(--painel-direito)) / 2);
+}
+
+#tiles {
+  max-width: min(calc(100vw - var(--painel-direito) - 400px), 760px);
+}
+
+#tela-compartilhada {
+  left: calc((100vw - var(--painel-direito)) / 2);
+  width: min(calc(100vw - var(--painel-direito) - 56px), 880px);
+}
+
+#chat {
+  right: calc(var(--painel-direito) + 16px);
+}

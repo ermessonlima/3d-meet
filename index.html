@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>POLYGON Office</title>
+  </head>
+  <body>
+    <canvas id="palco"></canvas>
+
+    <div id="carregando">
+      <div class="caixa">
+        <p class="titulo">Carregando o escritório</p>
+        <div class="barra"><div class="preenchimento"></div></div>
+        <p class="percentual">0%</p>
+      </div>
+    </div>
+
+    <div id="erro" hidden>
+      <div class="caixa">
+        <p class="titulo">Não foi possível carregar a cena</p>
+        <p class="detalhe"></p>
+      </div>
+    </div>
+
+    <div id="hud" hidden>
+      <span data-campo="fps">— fps</span>
+      <span class="separador"></span>
+      <span data-campo="draws">— draws</span>
+      <span class="separador"></span>
+      <span data-campo="tris">— tris</span>
+    </div>
+
+    <!-- ------------------------------------------------ tela inicial -->
+
+    <div id="lobby" hidden>
+      <div class="folha">
+        <header class="marca">
+          <h1>Polygon Office</h1>
+          <p>Um escritório para percorrer com outras pessoas.</p>
+        </header>
+
+        <section class="bloco">
+          <label class="campo" for="lb-nome">
+            <span class="rotulo">Seu nome</span>
+            <input id="lb-nome" type="text" maxlength="20" placeholder="Como querem te chamar" />
+          </label>
+        </section>
+
+        <section class="bloco">
+          <h2 class="rotulo">Personagem</h2>
+          <div id="lb-personagens" class="cartas"></div>
+        </section>
+
+        <section class="bloco">
+          <h2 class="rotulo">Cor de destaque</h2>
+          <div id="lb-cores" class="cores"></div>
+        </section>
+
+        <div class="abas" role="tablist">
+          <button type="button" data-aba="criar" role="tab" aria-selected="true">
+            Criar sala
+          </button>
+          <button type="button" data-aba="entrar" role="tab" aria-selected="false">
+            Entrar numa sala
+          </button>
+        </div>
+
+        <div class="painel" data-painel="criar">
+          <label class="campo" for="lb-sala-nome">
+            <span class="rotulo">Nome da sala</span>
+            <input id="lb-sala-nome" type="text" maxlength="32" placeholder="Escritório" />
+          </label>
+          <label class="campo" for="lb-senha-criar">
+            <span class="rotulo">Senha</span>
+            <input id="lb-senha-criar" type="password" maxlength="64" autocomplete="new-password" />
+            <span class="ajuda">Deixe vazio para uma sala aberta.</span>
+          </label>
+          <button type="button" id="lb-criar" class="principal">
+            <i data-icone="entrar" data-tamanho="16"></i>
+            <span>Criar e entrar</span>
+          </button>
+        </div>
+
+        <div class="painel" data-painel="entrar" hidden>
+          <label class="campo" for="lb-codigo">
+            <span class="rotulo">Código da sala</span>
+            <input id="lb-codigo" class="codigo" type="text" maxlength="12" placeholder="A1B2C3" />
+          </label>
+          <label class="campo" for="lb-senha-entrar">
+            <span class="rotulo">Senha</span>
+            <input id="lb-senha-entrar" type="password" maxlength="64" autocomplete="current-password" />
+          </label>
+          <button type="button" id="lb-entrar" class="principal">
+            <i data-icone="entrar" data-tamanho="16"></i>
+            <span>Entrar</span>
+          </button>
+        </div>
+
+        <p id="lb-erro" role="alert" hidden></p>
+      </div>
+    </div>
+
+    <!-- -------------------------------------------------- painel da sala -->
+
+    <div id="painel-sala" hidden>
+      <div class="linha">
+        <span class="rotulo">Sala</span>
+        <strong id="sala-codigo"></strong>
+        <button type="button" id="copiar-convite" title="Copiar link de convite">
+          <i data-icone="copiar" data-tamanho="13"></i>
+          <span>Convite</span>
+        </button>
+      </div>
+      <div class="linha contagem">
+        <i data-icone="pessoas" data-tamanho="13"></i>
+        <span id="sala-total">1</span>
+      </div>
+      <ul id="sala-jogadores"></ul>
+    </div>
+
+    <div id="controles" hidden>
+      <button type="button" id="alternar-modo" aria-pressed="false">
+        Entrar com o personagem
+      </button>
+      <button type="button" id="alternar-teto" aria-pressed="false">
+        Ver interior
+      </button>
+    </div>
+
+    <!-- ------------------------------------------------------- vídeo -->
+
+    <div id="tiles" hidden></div>
+
+    <div id="tela-compartilhada" hidden>
+      <header>
+        <span class="quem"></span>
+        <button type="button" class="fechar" aria-label="Fechar">
+          <i data-icone="fechar" data-tamanho="15"></i>
+        </button>
+      </header>
+      <video autoplay playsinline muted></video>
+    </div>
+
+    <!-- -------------------------------------------------- chat da sala -->
+
+    <aside id="chat-sala" hidden aria-label="Chat da sala">
+      <header>
+        <i data-icone="chat" data-tamanho="15"></i>
+        <span>Chat da sala</span>
+      </header>
+      <div class="log"></div>
+      <form autocomplete="off">
+        <input type="text" maxlength="200" placeholder="Mensagem para a sala" aria-label="Mensagem" />
+        <button type="submit" aria-label="Enviar">
+          <i data-icone="enviar" data-tamanho="15"></i>
+        </button>
+      </form>
+    </aside>
+
+    <div id="barra-midia" hidden>
+      <button type="button" id="btn-microfone" aria-pressed="false" title="Microfone">
+        <i class="icone" data-icone="mic-off" data-tamanho="17"></i>
+        <span class="rotulo">Microfone</span>
+      </button>
+      <button type="button" id="btn-camera" aria-pressed="false" title="Câmera">
+        <i class="icone" data-icone="camera-off" data-tamanho="17"></i>
+        <span class="rotulo">Câmera</span>
+      </button>
+      <button type="button" id="btn-tela" aria-pressed="false" title="Compartilhar tela">
+        <i class="icone" data-icone="compartilhar-tela" data-tamanho="17"></i>
+        <span class="rotulo">Tela</span>
+      </button>
+      <button type="button" id="alternar-chat" aria-pressed="false" title="Chat da sala">
+        <i class="icone" data-icone="chat" data-tamanho="17"></i>
+        <span class="rotulo">Chat</span>
+        <span class="nao-lidas" hidden></span>
+      </button>
+    </div>
+
+    <p id="aviso-midia" hidden role="alert"></p>
+
+    <form id="falar" hidden autocomplete="off">
+      <input type="text" maxlength="200" placeholder="Dizer alguma coisa" aria-label="Falar" />
+    </form>
+
+    <p id="aviso-interagir" hidden>
+      <kbd>E</kbd> <span>para conversar</span>
+    </p>
+
+    <!-- ------------------------------------------------- conversa NPC -->
+
+    <section id="chat" hidden aria-label="Conversa">
+      <header>
+        <span class="nome"></span>
+        <button type="button" class="fechar" aria-label="Encerrar conversa">
+          <i data-icone="fechar" data-tamanho="14"></i>
+        </button>
+      </header>
+      <div class="log"></div>
+      <form autocomplete="off">
+        <input
+          type="text"
+          placeholder="Escreva alguma coisa"
+          maxlength="500"
+          aria-label="Sua mensagem"
+        />
+        <button type="submit" aria-label="Enviar">
+          <i data-icone="enviar" data-tamanho="15"></i>
+        </button>
+      </form>
+    </section>
+
+    <p id="dica" hidden>
+      <span data-modo="orbita">
+        <kbd>arrastar</kbd> girar <kbd>scroll</kbd> zoom
+        <kbd>botão direito</kbd> mover <kbd>T</kbd> teto
+      </span>
+      <span data-modo="andar" hidden>
+        <kbd>clique</kbd> ir até o ponto <kbd>W A S D</kbd> andar
+        <kbd>espaço</kbd> pular <kbd>shift</kbd> correr
+        <kbd>arrastar</kbd> girar <kbd>Y</kbd> falar
+      </span>
+    </p>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
