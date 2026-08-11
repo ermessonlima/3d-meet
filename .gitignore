@@ -5,3 +5,4 @@ dist/
 # Guarda a chave da OpenAI. Nunca versionar.
 .env
 .env.local
+
