@@ -1,0 +1,254 @@
+[
+ {
+  "nome": "SM_Prop_Benchseat_01",
+  "posicao": [
+   3.241,
+   3.327,
+   11.954
+  ],
+  "frente": [
+   0.0,
+   0.0,
+   1.0
+  ],
+  "largura": 1.95
+ },
+ {
+  "nome": "SM_Prop_Benchseat_01 (1)",
+  "posicao": [
+   6.683,
+   3.327,
+   11.954
+  ],
+  "frente": [
+   0.0,
+   0.0,
+   1.0
+  ],
+  "largura": 1.95
+ },
+ {
+  "nome": "SM_Prop_Couch_02",
+  "posicao": [
+   0.818,
+   3.327,
+   5.607
+  ],
+  "frente": [
+   -1.0,
+   0.0,
+   0.0
+  ],
+  "largura": 1.94
+ },
+ {
+  "nome": "SM_Prop_Couch_02 (1)",
+  "posicao": [
+   2.306,
+   3.327,
+   -10.643
+  ],
+  "frente": [
+   1.0,
+   0.0,
+   0.0
+  ],
+  "largura": 1.94
+ },
+ {
+  "nome": "SM_Prop_Couch_02 (2)",
+  "posicao": [
+   17.228,
+   3.327,
+   -9.225
+  ],
+  "frente": [
+   1.0,
+   0.0,
+   0.0
+  ],
+  "largura": 1.94
+ },
+ {
+  "nome": "SM_Prop_Couch_02 (3)",
+  "posicao": [
+   -23.014,
+   3.327,
+   -9.811
+  ],
+  "frente": [
+   -0.0,
+   0.0,
+   -1.0
+  ],
+  "largura": 1.94
+ },
+ {
+  "nome": "SM_Prop_Couch_03",
+  "posicao": [
+   -4.982,
+   3.3,
+   6.328
+  ],
+  "frente": [
+   1.0,
+   0.0,
+   0.0
+  ],
+  "largura": 2.42
+ },
+ {
+  "nome": "SM_Prop_Couch_03 (1)",
+  "posicao": [
+   -6.537,
+   3.327,
+   -11.182
+  ],
+  "frente": [
+   -1.0,
+   0.0,
+   0.0
+  ],
+  "largura": 2.3
+ },
+ {
+  "nome": "SM_Prop_Couch_04",
+  "posicao": [
+   3.352,
+   3.327,
+   -4.341
+  ],
+  "frente": [
+   0.0,
+   0.0,
+   -1.0
+  ],
+  "largura": 1.83
+ },
+ {
+  "nome": "SM_Prop_Couch_04 (1)",
+  "posicao": [
+   8.914,
+   3.327,
+   -10.417
+  ],
+  "frente": [
+   -1.0,
+   0.0,
+   0.0
+  ],
+  "largura": 1.83
+ },
+ {
+  "nome": "SM_Prop_Couch_04 (2)",
+  "posicao": [
+   8.914,
+   3.327,
+   -8.476
+  ],
+  "frente": [
+   -1.0,
+   0.0,
+   0.0
+  ],
+  "largura": 1.83
+ },
+ {
+  "nome": "SM_Prop_Couch_05",
+  "posicao": [
+   23.432,
+   3.327,
+   -8.692
+  ],
+  "frente": [
+   -1.0,
+   0.0,
+   0.0
+  ],
+  "largura": 0.95
+ },
+ {
+  "nome": "SM_Prop_Couch_05 (1)",
+  "posicao": [
+   20.844,
+   3.327,
+   -6.666
+  ],
+  "frente": [
+   0.0,
+   0.0,
+   -1.0
+  ],
+  "largura": 0.95
+ },
+ {
+  "nome": "SM_Prop_Outdoor_Seat_01",
+  "posicao": [
+   -8.598,
+   3.327,
+   10.467
+  ],
+  "frente": [
+   -1.0,
+   0.0,
+   0.0
+  ],
+  "largura": 5.0
+ },
+ {
+  "nome": "SM_Prop_Outdoor_Seat_01 (1)",
+  "posicao": [
+   -8.598,
+   3.327,
+   3.967
+  ],
+  "frente": [
+   -1.0,
+   0.0,
+   0.0
+  ],
+  "largura": 5.0
+ },
+ {
+  "nome": "SM_Prop_Outdoor_Seat_01 (2)",
+  "posicao": [
+   24.602,
+   6.327,
+   1.128
+  ],
+  "frente": [
+   0.0,
+   0.0,
+   1.0
+  ],
+  "largura": 10.0
+ },
+ {
+  "nome": "SM_Prop_Outdoor_Seat_01 (3)",
+  "posicao": [
+   24.602,
+   6.327,
+   -5.414
+  ],
+  "frente": [
+   0.0,
+   0.0,
+   -1.0
+  ],
+  "largura": 10.0
+ },
+ {
+  "nome": "SM_Prop_Outdoor_Seat_01 (4)",
+  "posicao": [
+   -9.998,
+   6.327,
+   -7.393
+  ],
+  "frente": [
+   -1.0,
+   0.0,
+   -0.0
+  ],
+  "largura": 6.25
+ }
+]

@@ -1207,3 +1207,253 @@ body.chat-aberto {
 #chat {
   right: calc(var(--painel-direito) + 16px);
 }
+
+/* ------------------------------------------------------ botão de sentar */
+
+#btn-sentar {
+  position: fixed;
+  bottom: 62px;
+  left: calc((100vw - var(--painel-direito)) / 2);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--txt-1);
+  background: rgba(11, 14, 20, 0.86);
+  backdrop-filter: var(--vidro);
+  border: 1px solid var(--borda-forte);
+  border-radius: var(--raio-p);
+  padding: 9px 14px;
+  cursor: pointer;
+  z-index: 6;
+  box-shadow: var(--sombra-1);
+  transition: border-color 0.15s ease;
+}
+
+#btn-sentar:hover {
+  border-color: var(--acento);
+}
+
+#btn-sentar[hidden] {
+  display: none;
+}
+
+#btn-sentar kbd {
+  margin: 0 0 0 2px;
+  color: var(--acento);
+  border-color: rgba(91, 157, 255, 0.4);
+  background: var(--acento-suave);
+}
+
+/* Quando o aviso do NPC também está na tela, um sobe para não empilhar. */
+#aviso-interagir:not([hidden]) ~ #btn-sentar:not([hidden]) {
+  bottom: 106px;
+}
+
+/* ================================================ papel, mira e combate */
+
+#lobby .papeis {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+#lobby .papel {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  padding: 11px 13px;
+  background: var(--sup-1);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-m);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+#lobby .papel strong {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--txt-1);
+}
+
+#lobby .papel span {
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--txt-3);
+}
+
+#lobby .papel:hover {
+  border-color: var(--borda-forte);
+}
+
+#lobby .papel[aria-pressed="true"] {
+  border-color: var(--acento);
+  background: var(--acento-suave);
+}
+
+#lobby .bloco[hidden] {
+  display: none;
+}
+
+/* Cruz de mira: dois traços, sem ponto central, para não tapar o alvo. */
+#mira {
+  position: fixed;
+  left: calc((100vw - var(--painel-direito)) / 2);
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 8;
+}
+
+#mira[hidden] {
+  display: none;
+}
+
+#mira::before,
+#mira::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+}
+
+#mira::before {
+  left: 50%;
+  top: 0;
+  width: 1.5px;
+  height: 100%;
+  transform: translateX(-50%);
+}
+
+#mira::after {
+  top: 50%;
+  left: 0;
+  height: 1.5px;
+  width: 100%;
+  transform: translateY(-50%);
+}
+
+#vida {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 13px;
+  border-radius: var(--raio-p);
+  background: rgba(11, 14, 20, 0.72);
+  backdrop-filter: var(--vidro);
+  border: 1px solid var(--borda);
+  font-size: 0.7rem;
+  color: var(--txt-3);
+  z-index: 6;
+}
+
+#vida[hidden],
+#paleta[hidden],
+#abatido[hidden] {
+  display: none;
+}
+
+#vida .pontos {
+  display: flex;
+  gap: 5px;
+}
+
+#vida .ponto {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  background: var(--sucesso);
+}
+
+#vida .ponto.vazio {
+  background: var(--sup-3);
+  box-shadow: inset 0 0 0 1px var(--borda);
+}
+
+#paleta {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 13px;
+  border-radius: var(--raio-p);
+  background: rgba(11, 14, 20, 0.72);
+  backdrop-filter: var(--vidro);
+  border: 1px solid var(--borda);
+  font-size: 0.7rem;
+  color: var(--txt-3);
+  z-index: 6;
+}
+
+#paleta .cores {
+  display: flex;
+  gap: 6px;
+}
+
+#paleta .tinta {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--c);
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 1px var(--borda);
+  cursor: pointer;
+  padding: 0;
+}
+
+#paleta .tinta[aria-pressed="true"] {
+  border-color: var(--sup-0);
+  box-shadow: 0 0 0 2px var(--txt-1);
+}
+
+#paleta .dica-esconder {
+  color: var(--txt-3);
+}
+
+#abatido {
+  position: fixed;
+  left: calc((100vw - var(--painel-direito)) / 2);
+  top: 42%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 28px;
+  border-radius: var(--raio-m);
+  background: rgba(24, 10, 12, 0.86);
+  backdrop-filter: var(--vidro);
+  border: 1px solid rgba(255, 138, 138, 0.4);
+  z-index: 12;
+  pointer-events: none;
+}
+
+#abatido strong {
+  font-size: 1rem;
+  color: var(--perigo);
+}
+
+#abatido span {
+  font-size: 0.74rem;
+  color: var(--txt-2);
+}
+
+/* Piscada vermelha ao levar tiro. */
+body.levou-tiro::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 60, 60, 0.22);
+  pointer-events: none;
+  z-index: 11;
+}

@@ -35,7 +35,13 @@ const TENTATIVAS_POR_MINUTO = 12;    // por IP, contra força bruta de senha
 const MUNDO = { xz: 400, yMin: -60, yMax: 200 };
 const VELOCIDADE_MAX = 14;           // m/s; correr são 4.6, pular sobe ~8
 
-const ANIMACOES = new Set(["Parado", "Andar", "Pular"]);
+const ANIMACOES = new Set([
+  "Parado", "Andar", "Pular", "Sentar", "Esconder",
+]);
+
+const PAPEIS = new Set(["pessoa", "lagartixa"]);
+const VIDA_MAXIMA = 3;
+const TIRO_INTERVALO_MS = 220;   // cadência do lado do servidor
 
 const PERSONAGENS_VALIDOS = new Set([
   "Business_Male_01",
@@ -69,7 +75,8 @@ function validarPerfil(bruto) {
     ? bruto.personagem
     : "Business_Male_01";
   const cor = CORES_VALIDAS.has(bruto?.cor) ? bruto.cor : "#6ea8fe";
-  return { nome, personagem, cor };
+  const papel = PAPEIS.has(bruto?.papel) ? bruto.papel : "pessoa";
+  return { nome, personagem, cor, papel };
 }
 
 /** Janela deslizante simples, suficiente para o que precisamos barrar. */
@@ -141,6 +148,9 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
       nome: jogador.perfil.nome,
       personagem: jogador.perfil.personagem,
       cor: jogador.perfil.cor,
+      papel: jogador.perfil.papel,
+      pintura: jogador.pintura,
+      vida: jogador.vida,
       midia: jogador.midia,
     };
   }
@@ -164,6 +174,10 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
       ultimoEstadoEm: 0,
       ultimaFalaEm: 0,
       midia: { camera: false, microfone: false, tela: false },
+      escondido: false,
+      pintura: "#5f9e4a",
+      vida: VIDA_MAXIMA,
+      ultimoTiroEm: 0,
       ws,
     };
 
@@ -261,6 +275,7 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
         estado.pos = [p[0], p[1], p[2]];
         estado.yaw = msg.y;
         estado.anim = ANIMACOES.has(msg.a) ? msg.a : "Parado";
+        estado.escondido = msg.e === true;
         estado.ultimoEstadoEm = agora;
         return;
       }
@@ -306,6 +321,67 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
         return;
       }
 
+      // ---- pintura da lagartixa
+      if (msg.tipo === "pintar") {
+        if (typeof msg.cor !== "string" || !/^#[0-9a-f]{6}$/i.test(msg.cor)) {
+          return;
+        }
+        estado.pintura = msg.cor;
+        transmitir(estado.sala, { tipo: "pintar", id: estado.id, cor: msg.cor });
+        return;
+      }
+
+      // ---- tiro
+      //
+      // Quem decide o acerto é o atirador; o servidor confere apenas o que dá
+      // para conferir sem simular o mundo: cadência, alvo existente, alvo vivo
+      // e alvo diferente de si mesmo. É honesto dizer que isto NÃO impede
+      // trapaça -- um cliente adulterado pode declarar acertos que não houve.
+      // Autoridade real exigiria a física rodando aqui.
+      if (msg.tipo === "tiro") {
+        const agoraT = Date.now();
+        if (agoraT - estado.ultimoTiroEm < TIRO_INTERVALO_MS) return;
+        estado.ultimoTiroEm = agoraT;
+
+        // O rastro é retransmitido SEMPRE, acerte ou não: quem erra também faz
+        // barulho, e ver de onde vieram os tiros é metade da informação numa
+        // caçada. Sem isto, um tiro que passa raspando é invisível.
+        const seg = (v) =>
+          Array.isArray(v) && v.length === 3 && v.every(numero)
+          && Math.abs(v[0]) <= MUNDO.xz && Math.abs(v[2]) <= MUNDO.xz;
+        if (seg(msg.o) && seg(msg.f)) {
+          transmitir(
+            estado.sala,
+            { tipo: "disparo", de: estado.id, o: msg.o, f: msg.f },
+            estado.id,
+          );
+        }
+
+        if (typeof msg.alvo !== "string" || msg.alvo === estado.id) return;
+        const alvo = estado.sala.jogadores.get(msg.alvo);
+        if (!alvo || alvo.vida <= 0) return;
+
+        alvo.vida = Math.max(0, alvo.vida - 1);
+        transmitir(estado.sala, {
+          tipo: "dano",
+          de: estado.id,
+          alvo: alvo.id,
+          vida: alvo.vida,
+        });
+
+        if (alvo.vida === 0) {
+          // Revive sozinho depois de um tempo; sem isso o jogo trava no
+          // primeiro abate e alguém precisa recarregar a página.
+          const sala = estado.sala;
+          setTimeout(() => {
+            if (!sala.jogadores.has(alvo.id)) return;
+            alvo.vida = VIDA_MAXIMA;
+            transmitir(sala, { tipo: "reviver", alvo: alvo.id, vida: alvo.vida });
+          }, 4000);
+        }
+        return;
+      }
+
       // ---- sinalização WebRTC
       //
       // O servidor é só um carteiro aqui: repassa a oferta/resposta/candidato
@@ -347,6 +423,7 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
         p: j.pos,
         y: j.yaw,
         a: j.anim,
+        e: j.escondido,
       }));
       transmitir(sala, { tipo: "estados", lista });
     }

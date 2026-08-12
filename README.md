@@ -115,6 +115,33 @@ volta, mas some com o cursor, e sem cursor não há como mirar um ponto no chão
 Agora arrastar gira a câmera e clicar sem arrastar (menos de 5 px) é ordem de
 movimento.
 
+### Sentar nos sofás
+
+Chegue perto de um sofá, banco ou poltrona e aparece o botão **Sentar**
+(ou tecla `F`). Sair é o botão de novo, `F`, qualquer tecla de movimento, ou um
+clique no chão — todos os caminhos naturais funcionam.
+
+**Onde ficam os assentos.** Não dá para descobrir em runtime: o cenário é
+fundido por material, então "um sofá" deixa de existir como objeto — some o
+nome e some a transformação individual. Quem sabe é o Blender, antes da fusão.
+`fbx_to_glb.py` extrai os 18 lugares (11 sofás, 2 bancos, 5 poltronas) para
+`public/models/assentos.json`.
+
+**Para que lado o assento olha** sai da geometria, não de um palpite: a caixa
+do objeto é dividida ao meio no eixo mais curto (a profundidade) e comparamos a
+altura média dos vértices de cada metade. A metade mais alta é o encosto, a
+frente é o lado oposto. Vale para sofá, banco e poltrona sem tabela de exceções.
+
+**A pose.** O quadril desce 0,402 m e recua 0,22 m em relação à raiz. O
+personagem é posicionado com os **pés** no chão à frente do assento, e é esse
+deslocamento que leva o quadril para cima da almofada — 0,473 m de altura
+medidos no jogo. Fazer o contrário, pôr a raiz sobre o assento, deixaria os pés
+no ar. (0,42 m afundava o pé 1,8 cm no chão; daí o valor quebrado.)
+
+Sentado, a física é desligada: a cápsula escorregaria do sofá, porque o apoio
+está no estofado e não sob os pés. Para os outros jogadores nada mudou no
+protocolo — `Sentar` viaja no mesmo campo de animação que `Andar` e `Parado`.
+
 ### Física e câmera
 
 - **Colisão**: `three-mesh-bvh` sobre uma BVH das ~363 mil faces do cenário. O
@@ -125,6 +152,101 @@ movimento.
   centro geométrico cairia dentro de uma parede.
 - **Câmera**: braço telescópico próprio (`cameraTerceiraPessoa.js`), que
   encolhe quando há parede entre a lente e o personagem.
+
+## Papéis: pessoa ou lagartixa
+
+Na tela inicial você escolhe o que ser. **Pessoa** anda pelo escritório com uma
+arma de brinquedo do próprio pacote (`SM_Wep_ToyGun_Rifle_01`). **Lagartixa** é
+pequena e rápida, não atira, e tem dois poderes: `C` esconde (achata no chão,
+trava o movimento e fica translúcida) e a paleta pinta o corpo de outra cor.
+
+Escolher lagartixa esconde a grade de personagens no lobby — ela não usa nenhum
+dos seis corpos.
+
+### O bicho não existia
+
+O POLYGON Office não tem réptil nenhum (só um peixe de aquário), então a
+lagartixa é modelada por script em [tools/lagartixa.py](tools/lagartixa.py):
+11 caixas, 132 triângulos, 79 KB.
+
+**Sem esqueleto, de propósito.** O humano usa skinning porque veio riggado da
+Synty; a lagartixa é uma hierarquia de peças e a animação gira os *nós*. O glTF
+suporta isso nativamente e evita escrever pesos de skinning à mão — a parte mais
+frágil de rigar um bicho do zero.
+
+**Material único de cor chapada**, e é isso que torna "pintar a lagartixa"
+trivial: é `material.color`, não uma região de atlas.
+
+### Atirar
+
+| Gesto | O que faz |
+|---|---|
+| Arrastar (qualquer botão) | gira a câmera |
+| Clicar esquerdo | atira |
+| Segurar direito | mira — e girar continua funcionando |
+| Tocar no direito | mira e atira no mesmo gesto |
+
+**A câmera é a dona do mouse.** O combate não registra listener nenhum; ela
+interpreta os gestos e avisa por callback. Ter as duas classes ouvindo o mesmo
+canvas quebrou o giro de duas maneiras: girar dependia do botão esquerdo, então
+segurar o direito para mirar deixava a câmera travada; e o esquerdo disparava
+no `pointerdown`, então começar um arrasto para girar soltava um tiro.
+
+O limiar de 5 px que separa clique de arrasto vale só para o esquerdo, que
+também é gatilho. Com o direito segurado a pessoa está mirando, e ali qualquer
+movimento vira giro na hora — esperar 5 px daria sensação de mira travada.
+
+O clique-para-andar **saiu** por isso: ter o mesmo botão andando e atirando
+confundia — você mirava num adversário, clicava, e o personagem saía caminhando
+até ele. O movimento ficou no `WASD`. A navegação (grade + A*) continua no
+código e testada; religar é remover um `return` em `configurarCliqueParaAndar`.
+
+Mirar troca o enquadramento para **sobre o ombro**, e isso não é enfeite: a
+câmera normal aponta para o próprio jogador, então a cruz no centro da tela cai
+nas costas dele e o raio de tiro nunca alcança o alvo. Só com a câmera olhando
+ao longo da direção de visão a cruz significa alguma coisa. Foi exatamente
+assim que o primeiro teste de tiro errou.
+
+**A arma precisa compensar a escala do osso.** O osso da mão herda a escala do
+armature, que na Synty é `0.01`. Pendurar a arma ali sem compensar deixa o
+rifle de 1 m com **9 mm** — ele está na cena, e é invisível. O fator é medido
+do próprio osso (`getWorldScale`), não chutado, o que continua correto se o rig
+vier em outra convenção.
+
+**A arma vinha de cabeça para baixo.** O cano apontava para a frente, mas o
+eixo +Y da malha aponta para baixo — empunhadura para o teto. Uma rolagem de
+180° em torno do próprio cano resolve. Achei medindo os eixos da matriz de
+mundo; a olho, num rifle de brinquedo de 57 cm, isso passa fácil.
+
+**O dardo voa, e vai reto na cruz.** Um projétil sai a 34 m/s deixando rastro
+atrás (dez metros levam 0,3 s).
+
+Ele parte da **linha da mira**, não da boca do cano — e isso não é detalhe. A
+mira é um raio que sai da câmera; a boca fica a ~1 m dessa linha, porque a arma
+está na mão e a câmera está sobre o ombro. Lançando da boca, o dardo cruza em
+diagonal até o alvo: 3,7° de desvio a 16 m, e bem pior de perto, onde ele
+visivelmente sai de lado em vez de ir na cruz. Projetando a boca sobre o raio,
+o dardo nasce na mesma *profundidade* da arma (parece sair dali) e viaja exato
+sobre a mira — medido, 0 px do centro da tela. O clarão continua na boca de
+verdade, que é onde a arma está. A mira continua sendo hitscan: o ponto de impacto é
+decidido no instante do disparo, então acertar não depende de o dardo chegar.
+O que viaja é a imagem — amarrar o dano ao voo mudaria a sensação de mira sem
+ganho nenhum.
+
+Há também um **clarão na boca**, 70 ms. Ele não é enfeite: o rastro serve ao
+adversário, cujo ângulo cruza o tiro; para quem atira, o rastro sai na direção
+do olhar, fica de ponta para a câmera e some atrás da mira. Todo disparo é
+retransmitido, acerte ou não — ver de onde vieram os tiros é metade da
+informação numa caçada.
+
+O tiro é hitscan e só vale se o alvo estiver mais perto que a parede. Três
+acertos derrubam; quem cai volta ao ponto de nascimento em 4 s, não onde
+levou o tiro — reaparecer ali seria reaparecer na mira de quem atirou.
+
+**Quem decide o acerto é o atirador**; o servidor confere só o que dá sem
+simular o mundo (cadência, alvo existente, alvo vivo, alvo diferente de si).
+É honesto dizer que isto não impede trapaça — vale o mesmo aviso do resto do
+multiplayer.
 
 ## Multiplayer
 
@@ -368,6 +490,11 @@ src/carregarModelo.js      GLTFLoader + Draco, e os ajustes de material
 src/colisor.js             BVH do cenário e busca do ponto de nascimento
 src/navegacao.js           grade caminhável multinível e A*
 src/marcador.js            anel que marca o destino do clique
+src/assentos.js            sofás disponíveis e quem está ocupando cada um
+src/combate.js             arma, mira sobre o ombro e hitscan
+src/lagartixa.js           esconder e pintar
+tools/lagartixa.py         modela e anima a lagartixa (não existe no pacote)
+tools/arma.py              extrai e alinha a arma de brinquedo
 src/jogador.js             cápsula, gravidade, pulo e máquina de animação
 src/cameraTerceiraPessoa.js braço telescópico com colisão
 src/npc.js                 NPC, proximidade e persona

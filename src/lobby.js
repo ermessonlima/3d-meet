@@ -21,6 +21,11 @@ export const CORES = [
   "#6ea8fe", "#7ee0a8", "#ffd166", "#ff8fa3", "#c89bff", "#5fe0d8",
 ];
 
+export const PAPEIS = [
+  { id: "pessoa", rotulo: "Pessoa", nota: "Anda pelo escritório com uma arma de brinquedo." },
+  { id: "lagartixa", rotulo: "Lagartixa", nota: "Pequena e rápida. Esconde-se e muda de cor." },
+];
+
 const CHAVE = "poligono.perfil";
 
 function carregarPerfil() {
@@ -32,9 +37,10 @@ function carregarPerfil() {
         ? salvo.personagem
         : PERSONAGENS[0].id,
       cor: CORES.includes(salvo.cor) ? salvo.cor : CORES[0],
+      papel: PAPEIS.some((p) => p.id === salvo.papel) ? salvo.papel : "pessoa",
     };
   } catch {
-    return { nome: "", personagem: PERSONAGENS[0].id, cor: CORES[0] };
+    return { nome: "", personagem: PERSONAGENS[0].id, cor: CORES[0], papel: "pessoa" };
   }
 }
 
@@ -62,6 +68,10 @@ export class Lobby {
 
     this.aoConfirmar = async () => {};
 
+    this.elPapeis = this.el.querySelector("#lb-papeis");
+    this.elBlocoPersonagem = this.el.querySelector("#lb-bloco-personagem");
+
+    this._montarPapeis();
     this._montarPersonagens();
     this._montarCores();
     this.elNome.value = this.perfil.nome;
@@ -110,6 +120,43 @@ export class Lobby {
       painel.hidden = painel.dataset.painel !== qual;
     }
     this._erro("");
+  }
+
+  /**
+   * Papel: pessoa ou lagartixa.
+   *
+   * Escolher lagartixa esconde a grade de personagens -- ela não usa nenhum
+   * dos seis corpos, e deixar a grade visível sugeriria que a escolha ali
+   * ainda vale para alguma coisa.
+   */
+  _montarPapeis() {
+    for (const papel of PAPEIS) {
+      const botao = document.createElement("button");
+      botao.type = "button";
+      botao.className = "papel";
+      botao.dataset.papel = papel.id;
+      botao.setAttribute("aria-pressed", String(papel.id === this.perfil.papel));
+
+      const titulo = document.createElement("strong");
+      titulo.textContent = papel.rotulo;
+      const nota = document.createElement("span");
+      nota.textContent = papel.nota;
+      botao.append(titulo, nota);
+
+      botao.addEventListener("click", () => {
+        this.perfil.papel = papel.id;
+        for (const outro of this.elPapeis.children) {
+          outro.setAttribute("aria-pressed", String(outro.dataset.papel === papel.id));
+        }
+        this._aplicarPapel();
+      });
+      this.elPapeis.append(botao);
+    }
+    this._aplicarPapel();
+  }
+
+  _aplicarPapel() {
+    this.elBlocoPersonagem.hidden = this.perfil.papel !== "pessoa";
   }
 
   _montarPersonagens() {

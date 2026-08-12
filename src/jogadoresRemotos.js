@@ -2,8 +2,13 @@ import * as THREE from "three";
 
 import { carregarPersonagem } from "./carregarModelo.js";
 import { Balao, criarEtiqueta, descartarEtiqueta } from "./etiquetas.js";
+import { pintarRemoto } from "./lagartixa.js";
 
-const CAMINHO = (personagem) => `/models/personagens/${personagem}.glb`;
+// A lagartixa tem um modelo só; os humanos, um por personagem escolhido.
+const CAMINHO = (dados) =>
+  dados.papel === "lagartixa"
+    ? "/models/lagartixa.glb"
+    : `/models/personagens/${dados.personagem}.glb`;
 
 // O servidor manda estado a 15 Hz, mas a tela roda a 60. Sem interpolação os
 // avatares andariam aos saltos. Atrasamos a exibição em um intervalo de
@@ -17,6 +22,8 @@ class Remoto {
     this.id = dados.id;
     this.nome = dados.nome;
     this.cor = dados.cor;
+    this.papel = dados.papel ?? "pessoa";
+    this.escondido = false;
 
     this.raiz = new THREE.Group();
     this.raiz.add(modelo);
@@ -34,11 +41,16 @@ class Remoto {
     this._trocarAnim("Parado");
 
     this.buffer = [];  // {t, p:Vector3, yaw}
+    if (this.papel === "lagartixa") {
+      pintarRemoto(this.raiz, dados.pintura ?? "#5f9e4a", false);
+    }
     this.etiqueta = criarEtiqueta(this.nome, this.cor);
-    this.etiqueta.position.set(0, 2.05, 0);
+    // A etiqueta acompanha a altura do corpo: 2 m sobre uma lagartixa de 10 cm
+    // ficaria boiando longe do bicho.
+    this.etiqueta.position.set(0, this.papel === "lagartixa" ? 0.4 : 2.05, 0);
     this.raiz.add(this.etiqueta);
 
-    this.balao = new Balao(this.raiz);
+    this.balao = new Balao(this.raiz, this.papel === "lagartixa" ? 0.62 : 2.42);
   }
 
   _trocarAnim(nome) {
@@ -52,6 +64,10 @@ class Remoto {
   }
 
   receber(estado, agora) {
+    if (this.papel === "lagartixa" && estado.e !== this.escondido) {
+      this.escondido = Boolean(estado.e);
+      pintarRemoto(this.raiz, null, this.escondido);
+    }
     this.buffer.push({
       t: agora,
       p: new THREE.Vector3(estado.p[0], estado.p[1], estado.p[2]),
@@ -77,11 +93,22 @@ class Remoto {
     let i = b.length - 1;
     while (i > 0 && b[i - 1].t > alvo) i--;
 
-    if (b.length === 1) {
-      this.raiz.position.copy(b[0].p);
-      this.raiz.rotation.y = b[0].yaw;
-      this._trocarAnim(b[0].anim);
-    } else if (i > 0) {
+    if (!b.length) {
+      // ainda não chegou nada
+    } else if (b.length === 1 || i === 0) {
+      // Sem duas amostras cercando o instante alvo, salta para a mais recente.
+      //
+      // `i === 0` significa que TUDO no buffer é mais novo que o alvo, ou
+      // seja, estamos atrasados em relação ao fluxo. Acontece ao voltar de uma
+      // aba em segundo plano: o navegador congela os timers, as mensagens se
+      // acumulam e chegam todas juntas. Sem este ramo, a condição `i > 0`
+      // falhava e o avatar simplesmente não era posicionado -- ficava parado
+      // na origem do mundo, com a animação inicial.
+      const ultimo = b[b.length - 1];
+      this.raiz.position.copy(ultimo.p);
+      this.raiz.rotation.y = ultimo.yaw;
+      this._trocarAnim(ultimo.anim);
+    } else {
       const a = b[i - 1];
       const c = b[i];
       const span = c.t - a.t;
@@ -125,14 +152,12 @@ export class JogadoresRemotos {
     this._cache = new Map();
   }
 
-  async _carregar(personagem) {
-    if (!this._cache.has(personagem)) {
-      this._cache.set(
-        personagem,
-        carregarPersonagem(this.renderer, CAMINHO(personagem)),
-      );
+  async _carregar(dados) {
+    const chave = dados.papel === "lagartixa" ? "lagartixa" : dados.personagem;
+    if (!this._cache.has(chave)) {
+      this._cache.set(chave, carregarPersonagem(this.renderer, CAMINHO(dados)));
     }
-    const { modelo, clipes } = await this._cache.get(personagem);
+    const { modelo, clipes } = await this._cache.get(chave);
     // Cada avatar precisa da própria hierarquia de ossos; compartilhar o
     // modelo faria todos assumirem a mesma pose.
     //
@@ -149,7 +174,7 @@ export class JogadoresRemotos {
     this.mapa.set(dados.id, null);
 
     try {
-      const { modelo, clipes } = await this._carregar(dados.personagem);
+      const { modelo, clipes } = await this._carregar(dados);
       if (!this.mapa.has(dados.id)) return; // saiu enquanto carregava
 
       const remoto = new Remoto(dados, modelo, clipes);
@@ -160,7 +185,7 @@ export class JogadoresRemotos {
       // fica como null para sempre -- o jogador some da cena sem explicação.
       console.error("[remotos] falha ao criar avatar de", dados.nome, erro);
       this.mapa.delete(dados.id);
-      this._cache.delete(dados.personagem);
+      this._cache.delete(dados.papel === "lagartixa" ? "lagartixa" : dados.personagem);
     }
   }
 

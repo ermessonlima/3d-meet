@@ -16,9 +16,11 @@ O FBX da Synty vem com tres problemas que este script resolve:
      e mais bonito iluminar no three.js, entao descartamos.
 """
 
-import os
-import sys
+import json
 import math
+import os
+import re
+import sys
 
 import bpy
 from mathutils import Vector
@@ -352,7 +354,7 @@ def centralizar_e_medir():
 
     tam = hi - lo
     log("bounding box: %.1f x %.1f x %.1f metros" % (tam.x, tam.y, tam.z))
-    return tam
+    return tam, desloca
 
 
 def exportar():
@@ -383,13 +385,119 @@ def exportar():
     log("gravado %s (%.1f MB)" % (SAIDA, os.path.getsize(SAIDA) / 1e6))
 
 
+# Assentos que o jogador pode usar. Vaso sanitario tambem casa com "Seat" no
+# nome do pacote, e fica de fora de proposito.
+PADRAO_ASSENTO = re.compile(r"(couch|benchseat|outdoor_seat)", re.I)
+
+SAIDA_ASSENTOS = os.path.join(RAIZ, "public", "models", "assentos.json")
+
+
+def _obb(obj):
+    """Caixa do objeto no espaco LOCAL dele, e os eixos desse espaco no mundo."""
+    lo = Vector((math.inf,) * 3)
+    hi = Vector((-math.inf,) * 3)
+    for v in obj.data.vertices:
+        lo = Vector((min(lo[i], v.co[i]) for i in range(3)))
+        hi = Vector((max(hi[i], v.co[i]) for i in range(3)))
+    return lo, hi
+
+
+def coletar_assentos():
+    """Grava onde ficam os sofas, para o jogo saber onde dá para sentar.
+
+    Precisa rodar ANTES da fusao: depois que as malhas viram um bloco por
+    material, nao existe mais "um sofa" para consultar -- some o nome e some a
+    transformacao individual.
+
+    O lado que o assento encara sai da geometria, nao de um palpite: dividimos
+    a caixa do objeto ao meio no eixo mais curto (a profundidade) e medimos a
+    altura media dos vertices de cada metade. A metade mais alta e o encosto,
+    entao a frente e o lado oposto. Isso vale para sofa, banco e poltrona sem
+    tabela de excecoes.
+    """
+    assentos = []
+
+    for obj in bpy.data.objects:
+        if obj.type != "MESH" or not PADRAO_ASSENTO.search(obj.name):
+            continue
+
+        lo, hi = _obb(obj)
+        tamanho = hi - lo
+
+        # Dos dois eixos horizontais locais, o mais curto e a profundidade.
+        eixo_prof = 0 if tamanho.x < tamanho.y else 1
+        eixo_larg = 1 - eixo_prof
+
+        meio = (lo[eixo_prof] + hi[eixo_prof]) / 2
+        soma = [0.0, 0.0]
+        conta = [0, 0]
+        for v in obj.data.vertices:
+            lado = 0 if v.co[eixo_prof] < meio else 1
+            soma[lado] += v.co.z
+            conta[lado] += 1
+
+        alto = 0 if (conta[0] and soma[0] / conta[0]) > (conta[1] and soma[1] / conta[1]) else 1
+        # A frente aponta para longe do encosto.
+        sinal = 1.0 if alto == 0 else -1.0
+
+        frente_local = Vector((0, 0, 0))
+        frente_local[eixo_prof] = sinal
+        frente = (obj.matrix_world.to_3x3() @ frente_local)
+        frente.z = 0
+        if frente.length < 1e-6:
+            continue
+        frente.normalize()
+
+        centro_local = (lo + hi) / 2
+        centro_local.z = lo.z  # nivel do chao sob o assento
+        centro = obj.matrix_world @ centro_local
+
+        # Converte para o eixo do glTF (Y para cima): Blender (x, y, z) vira
+        # (x, z, -y), e o mesmo vale para a direcao.
+        assentos.append({
+            "nome": obj.name,
+            "posicao": [round(centro.x, 3), round(centro.z, 3), round(-centro.y, 3)],
+            "frente": [round(frente.x, 3), 0.0, round(-frente.y, 3)],
+            "largura": round(tamanho[eixo_larg] * abs(obj.matrix_world.to_scale()[eixo_larg]), 2),
+        })
+
+    return assentos
+
+
+def gravar_assentos(assentos, desloca):
+    """Grava o JSON já no sistema de coordenadas final do .glb.
+
+    Os assentos são lidos antes da fusão, mas `centralizar_e_medir` move a cena
+    inteira depois disso. Sem somar esse deslocamento aqui, cada sofá do JSON
+    ficaria alguns metros fora do sofá que aparece na tela -- e o erro seria
+    silencioso, porque as duas coisas parecem plausíveis isoladamente.
+    """
+    # desloca vem em coordenadas do Blender (Z para cima); o JSON está em glTF.
+    dx, dy, dz = desloca.x, desloca.z, -desloca.y
+
+    for assento in assentos:
+        p = assento["posicao"]
+        assento["posicao"] = [
+            round(p[0] + dx, 3), round(p[1] + dy, 3), round(p[2] + dz, 3),
+        ]
+
+    os.makedirs(os.path.dirname(SAIDA_ASSENTOS), exist_ok=True)
+    with open(SAIDA_ASSENTOS, "w") as arquivo:
+        json.dump(assentos, arquivo, indent=1, ensure_ascii=False)
+
+    log("gravados %d assentos em %s"
+        % (len(assentos), os.path.basename(SAIDA_ASSENTOS)))
+
+
 def main():
     limpar_cena()
     importar()
     limpar_objetos()
+    assentos = coletar_assentos()
     religar_materiais()
     fundir_por_grupo_e_material()
-    centralizar_e_medir()
+    _, desloca = centralizar_e_medir()
+    gravar_assentos(assentos, desloca)
     exportar()
     log("pronto")
 

@@ -7,6 +7,8 @@ const VEL_CORRIDA = 4.6;
 // numa mesa (0.75 m), baixo o bastante para nao parecer que flutua.
 const IMPULSO_PULO = 7.0;
 
+// Medidas padrão (pessoa). A lagartixa passa as dela no construtor: uma
+// cápsula de 1,8 m num bicho de 10 cm o faria flutuar e travar em cada porta.
 const RAIO = 0.3;
 const ALTURA = 1.8;
 
@@ -18,7 +20,14 @@ const AVANCO_POR_CICLO = 1.5;
  * Jogador com capsula, gravidade e colisao contra a BVH do cenario.
  */
 export class Jogador {
-  constructor(modelo, clipes, colisor) {
+  constructor(modelo, clipes, colisor, opcoes = {}) {
+    this.raio = opcoes.raio ?? RAIO;
+    this.altura = opcoes.altura ?? ALTURA;
+    this.velCaminhada = opcoes.velCaminhada ?? VEL_CAMINHADA;
+    this.velCorrida = opcoes.velCorrida ?? VEL_CORRIDA;
+    this.avancoPorCiclo = opcoes.avancoPorCiclo ?? AVANCO_POR_CICLO;
+    this.impulsoPulo = opcoes.impulsoPulo ?? IMPULSO_PULO;
+
     this.raiz = new THREE.Group();
     this.raiz.add(modelo);
     this.modelo = modelo;
@@ -29,6 +38,13 @@ export class Jogador {
     this.noChao = false;
     this.olhandoPara = 0;
 
+    this.sentado = false;
+
+    // Quando definida, a máquina de animação para de decidir e mantém esta
+    // pose. Sem isso, `_animar` reescreve "Parado" a cada quadro e qualquer
+    // pose imposta de fora (esconder, por exemplo) dura um frame só.
+    this.poseFixa = null;
+
     // Caminho do clicar-e-andar. Vazio = sob controle do teclado.
     this.caminho = null;
     this.passoAtual = 0;
@@ -36,8 +52,8 @@ export class Jogador {
 
     // Capsula em espaco local, medida a partir dos pes.
     this.capsula = new THREE.Line3(
-      new THREE.Vector3(0, RAIO, 0),
-      new THREE.Vector3(0, ALTURA - RAIO, 0),
+      new THREE.Vector3(0, this.raio, 0),
+      new THREE.Vector3(0, Math.max(this.altura - this.raio, this.raio), 0),
     );
 
     this.mixer = new THREE.AnimationMixer(modelo);
@@ -95,10 +111,33 @@ export class Jogador {
   }
 
   /**
-   * @param {number} dt      segundos desde o frame anterior
-   * @param {object} entrada {frente, tras, esquerda, direita, correndo, pular}
-   * @param {THREE.Camera} camera  define para onde e "para frente"
+   * Senta num ponto, encarando `angulo`.
+   *
+   * Encaixa o corpo no lugar em vez de deixar a física resolver: a cápsula
+   * pararia encostada no sofá, não em cima dele, e a pose sentada ficaria
+   * flutuando ao lado do móvel.
    */
+  sentar(ponto, angulo) {
+    this.cancelarCaminho();
+    this.sentado = true;
+    this.posicao.copy(ponto);
+    this.olhandoPara = angulo;
+    this.velocidade.set(0, 0, 0);
+    this._sincronizar();
+    this._trocarPara("Sentar", 0.35);
+  }
+
+  levantar() {
+    if (!this.sentado) return;
+    this.sentado = false;
+
+    // Quando definida, a máquina de animação para de decidir e mantém esta
+    // pose. Sem isso, `_animar` reescreve "Parado" a cada quadro e qualquer
+    // pose imposta de fora (esconder, por exemplo) dura um frame só.
+    this.poseFixa = null;
+    this._trocarPara("Parado", 0.3);
+  }
+
   /** Começa a seguir um caminho (lista de pontos do módulo de navegação). */
   seguirCaminho(pontos) {
     if (!pontos?.length) return;
@@ -169,7 +208,26 @@ export class Jogador {
     return false;
   }
 
+  /**
+   * @param {number} dt      segundos desde o frame anterior
+   * @param {object} entrada {frente, tras, esquerda, direita, correndo, pular}
+   * @param {THREE.Camera} camera  define para onde é "para frente"
+   */
   atualizar(dt, entrada, camera) {
+    // Sentado, o corpo fica onde foi encaixado: nada de gravidade nem de
+    // colisão. Deixar a física rodando faria a cápsula escorregar do sofá,
+    // porque o ponto de apoio está no estofado, não sob os pés.
+    if (this.sentado) {
+      // Qualquer tecla de movimento levanta -- é o gesto natural de sair.
+      if (entrada.frente || entrada.tras || entrada.esquerda || entrada.direita
+          || entrada.pular) {
+        this.levantar();
+      } else {
+        this.mixer.update(dt);
+        return;
+      }
+    }
+
     // ---- direcao desejada, relativa a camera
     this._direcao.set(0, 0, 0);
     const eixoZ = new THREE.Vector3();
@@ -193,12 +251,12 @@ export class Jogador {
       andando = this._direcaoDoCaminho(this._direcao);
     }
 
-    const velocidade = entrada.correndo ? VEL_CORRIDA : VEL_CAMINHADA;
+    const velocidade = entrada.correndo ? this.velCorrida : this.velCaminhada;
 
     // ---- integra
     this.velocidade.y += GRAVIDADE * dt;
     if (entrada.pular && this.noChao) {
-      this.velocidade.y = IMPULSO_PULO;
+      this.velocidade.y = this.impulsoPulo;
       this.noChao = false;
       this._trocarPara("Pular", 0.08);
     }
@@ -224,11 +282,16 @@ export class Jogador {
   }
 
   _animar(dt, andando, velocidade) {
+    if (this.poseFixa) {
+      this._trocarPara(this.poseFixa, 0.28);
+      this.mixer.update(dt);
+      return;
+    }
     if (!this.noChao) {
       this._trocarPara("Pular", 0.1);
     } else if (andando) {
       this._trocarPara("Andar");
-      this.acoes.Andar.timeScale = velocidade / AVANCO_POR_CICLO;
+      this.acoes.Andar.timeScale = velocidade / this.avancoPorCiclo;
     } else {
       this._trocarPara("Parado");
     }
@@ -252,15 +315,15 @@ export class Jogador {
     this._caixa.makeEmpty();
     this._caixa.expandByPoint(this._seg.start);
     this._caixa.expandByPoint(this._seg.end);
-    this._caixa.min.addScalar(-RAIO);
-    this._caixa.max.addScalar(RAIO);
+    this._caixa.min.addScalar(-this.raio);
+    this._caixa.max.addScalar(this.raio);
 
     bvh.shapecast({
       intersectsBounds: (caixa) => caixa.intersectsBox(this._caixa),
       intersectsTriangle: (tri) => {
         const dist = tri.closestPointToSegment(this._seg, this._tri, this._cap);
-        if (dist < RAIO) {
-          const profundidade = RAIO - dist;
+        if (dist < this.raio) {
+          const profundidade = this.raio - dist;
           const direcao = this._cap.sub(this._tri).normalize();
           this._seg.start.addScaledVector(direcao, profundidade);
           this._seg.end.addScaledVector(direcao, profundidade);
@@ -289,7 +352,7 @@ export class Jogador {
 
   /** Ponto que a camera deve mirar: o peito, nao os pes. */
   alvoDaCamera(destino) {
-    return destino.copy(this.posicao).addScaledVector(new THREE.Vector3(0, 1, 0), 1.25);
+    return destino.copy(this.posicao).addScaledVector(new THREE.Vector3(0, 1, 0), this.alvoCamera ?? 1.25);
   }
 }
 

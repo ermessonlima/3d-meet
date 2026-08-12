@@ -17,6 +17,9 @@ const RAIO_SONDA = 0.3;
 // natural da mão sem engolir arrastos curtos de câmera.
 const ARRASTO_MIN = 5;
 
+// Soltar o botão direito antes disto, sem ter arrastado, conta como toque.
+const TOQUE_MS = 260;
+
 /**
  * Camera de terceira pessoa com braco telescopico (spring arm).
  *
@@ -37,13 +40,19 @@ export class CameraTerceiraPessoa {
     this.distanciaAtual = 5.0; // o que a colisao permite agora
 
     this.ativa = false;
-    this._arrastando = false;
+    this._esquerdoPreso = false;
+    this._direitoPreso = false;
     this._moveu = false;
     this._inicioX = 0;
     this._inicioY = 0;
+    this._direitoDesde = 0;
 
-    /** Chamado num clique sem arrasto, com o PointerEvent. */
+    /** Clique esquerdo sem arrasto. */
     this.aoClicar = () => {};
+    /** Botão direito pressionado (true) ou solto (false). */
+    this.aoMirar = () => {};
+    /** Toque curto no botão direito -- mirar e atirar no mesmo gesto. */
+    this.aoTocarDireito = () => {};
 
     this._raio = new THREE.Raycaster();
     this._raio.firstHitOnly = true;
@@ -57,6 +66,7 @@ export class CameraTerceiraPessoa {
     this._aoDescer = this._aoDescer.bind(this);
     this._aoSubir = this._aoSubir.bind(this);
     this._aoRolar = this._aoRolar.bind(this);
+    this._semMenu = (e) => e.preventDefault();
   }
 
   ativar() {
@@ -65,11 +75,14 @@ export class CameraTerceiraPessoa {
     addEventListener("pointerup", this._aoSubir);
     addEventListener("pointermove", this._aoMover);
     this.dom.addEventListener("wheel", this._aoRolar, { passive: false });
+    // Sem isto o botão direito abre o menu do navegador no meio do tiroteio.
+    this.dom.addEventListener("contextmenu", this._semMenu);
   }
 
   desativar() {
     this.ativa = false;
-    this._arrastando = false;
+    this._esquerdoPreso = false;
+    this._direitoPreso = false;
     this._moveu = false;
     // `aoClicar` NÃO é zerado aqui: quem registrou o callback foi o main, uma
     // vez só. Limpá-lo faria o clique parar de funcionar ao sair e voltar do
@@ -78,6 +91,7 @@ export class CameraTerceiraPessoa {
     removeEventListener("pointerup", this._aoSubir);
     removeEventListener("pointermove", this._aoMover);
     this.dom.removeEventListener("wheel", this._aoRolar);
+    this.dom.removeEventListener("contextmenu", this._semMenu);
   }
 
   /**
@@ -91,31 +105,74 @@ export class CameraTerceiraPessoa {
    * volta, mas some com o cursor -- e sem cursor não há como mirar um ponto no
    * chão. As duas coisas não cabem no mesmo botão.
    */
+  /**
+   * A câmera é a dona do mouse.
+   *
+   * Antes o combate registrava os próprios listeners no mesmo canvas, e as
+   * duas coisas se atropelavam: girar dependia do botão ESQUERDO, então
+   * segurar o direito para mirar deixava a câmera travada; e o esquerdo
+   * disparava no `pointerdown`, então começar um arrasto para girar soltava
+   * um tiro.
+   *
+   * Agora a câmera interpreta os gestos e avisa por callback:
+   *
+   *   esquerdo arrastando .... gira
+   *   esquerdo sem arrastar .. aoClicar (gatilho)
+   *   direito pressionado .... aoMirar(true) -- e girar continua funcionando
+   *   direito solto rápido ... aoTocarDireito (mirar e atirar num gesto só)
+   */
   _aoDescer(evento) {
-    if (evento.button !== 0) return;
-    this._arrastando = true;
-    this._moveu = false;
-    this._inicioX = evento.clientX;
-    this._inicioY = evento.clientY;
+    if (evento.button === 0) {
+      this._esquerdoPreso = true;
+      this._moveu = false;
+      this._inicioX = evento.clientX;
+      this._inicioY = evento.clientY;
+    } else if (evento.button === 2) {
+      this._direitoPreso = true;
+      this._direitoDesde = performance.now();
+      this._moveu = false;
+      this._inicioX = evento.clientX;
+      this._inicioY = evento.clientY;
+      evento.preventDefault();
+      this.aoMirar(true);
+    }
   }
 
   _aoSubir(evento) {
-    const eraArrasto = this._arrastando;
-    this._arrastando = false;
-    if (!eraArrasto || this._moveu || !this.ativa) return;
-    if (evento && evento.button !== 0) return;
-    this.aoClicar(evento);
+    if (!evento) return;
+
+    if (evento.button === 0) {
+      const era = this._esquerdoPreso;
+      this._esquerdoPreso = false;
+      if (era && !this._moveu && this.ativa) this.aoClicar(evento);
+      return;
+    }
+
+    if (evento.button === 2) {
+      const foiToque =
+        this._direitoPreso &&
+        performance.now() - this._direitoDesde < TOQUE_MS &&
+        !this._moveu;
+      this._direitoPreso = false;
+      this.aoMirar(false);
+      if (foiToque && this.ativa) this.aoTocarDireito();
+    }
   }
 
   _aoMover(evento) {
-    if (!this.ativa || !this._arrastando) return;
+    if (!this.ativa) return;
+    if (!this._esquerdoPreso && !this._direitoPreso) return;
 
+    // O limiar de arrasto vale para o esquerdo, que também é gatilho: sem ele,
+    // o tremor da mão ao clicar viraria giro. Com o direito segurado a pessoa
+    // está mirando, e ali qualquer movimento tem que virar giro na hora --
+    // esperar 5 px daria sensação de mira travada.
     if (!this._moveu) {
       const andou = Math.hypot(
         evento.clientX - this._inicioX,
         evento.clientY - this._inicioY,
       );
-      if (andou < ARRASTO_MIN) return; // ainda pode virar clique
+      if (!this._direitoPreso && andou < ARRASTO_MIN) return;
       this._moveu = true;
     }
 
@@ -155,6 +212,43 @@ export class CameraTerceiraPessoa {
 
     this.camera.position.copy(alvo).addScaledVector(this._dir, this.distanciaAtual);
     this.camera.lookAt(alvo);
+  }
+
+  /**
+   * Enquadramento de mira: câmera sobre o ombro, olhando para o MUNDO.
+   *
+   * O enquadramento normal aponta a câmera para o próprio jogador, e é por
+   * isso que ele não serve para atirar: a cruz no centro da tela cai nas
+   * costas do personagem, e o raio de tiro sai da lente em direção a ele --
+   * nunca ao alvo. Aqui a câmera se desloca para o ombro e passa a olhar ao
+   * LONGO da direção de visão, não para o corpo. Só então a cruz significa
+   * alguma coisa.
+   */
+  enquadrarMira(dt, alvo) {
+    const cp = Math.cos(this.pitch);
+    // `_dir` aponta da câmera para a frente do mundo (o oposto do modo normal,
+    // onde ele aponta do alvo para a câmera).
+    this._dir.set(
+      -Math.sin(this.yaw) * cp,
+      -Math.sin(this.pitch),
+      -Math.cos(this.yaw) * cp,
+    ).normalize();
+
+    this._direita.set(-this._dir.z, 0, this._dir.x).normalize();
+
+    // Ombro direito, um pouco acima: o corpo ocupa o canto do quadro e a linha
+    // de tiro fica limpa.
+    this._desejada.copy(alvo)
+      .addScaledVector(this._direita, 0.42)
+      .addScaledVector(this._dir, -1.5);
+    this._desejada.y += 0.28;
+
+    const k = 1 - Math.exp(-14 * dt);
+    this.camera.position.lerp(this._desejada, k);
+    this.camera.lookAt(
+      this._origem.copy(this.camera.position).addScaledVector(this._dir, 20),
+    );
+    this.distanciaAtual = 1.5;
   }
 
   /**

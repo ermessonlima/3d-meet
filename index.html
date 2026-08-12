@@ -49,6 +49,11 @@
         </section>
 
         <section class="bloco">
+          <h2 class="rotulo">O que você quer ser</h2>
+          <div id="lb-papeis" class="papeis"></div>
+        </section>
+
+        <section class="bloco" id="lb-bloco-personagem">
           <h2 class="rotulo">Personagem</h2>
           <div id="lb-personagens" class="cartas"></div>
         </section>
@@ -181,6 +186,24 @@
 
     <p id="aviso-midia" hidden role="alert"></p>
 
+    <div id="mira" hidden aria-hidden="true"></div>
+
+    <div id="vida" hidden>
+      <span class="rotulo">Vida</span>
+      <div class="pontos"></div>
+    </div>
+
+    <div id="paleta" hidden>
+      <span class="rotulo">Pintura</span>
+      <div class="cores"></div>
+      <kbd>C</kbd><span class="dica-esconder">esconder</span>
+    </div>
+
+    <p id="abatido" hidden role="status">
+      <strong>Você foi atingido</strong>
+      <span>voltando em instantes…</span>
+    </p>
+
     <form id="falar" hidden autocomplete="off">
       <input type="text" maxlength="200" placeholder="Dizer alguma coisa" aria-label="Falar" />
     </form>
@@ -188,6 +211,12 @@
     <p id="aviso-interagir" hidden>
       <kbd>E</kbd> <span>para conversar</span>
     </p>
+
+    <button type="button" id="btn-sentar" hidden>
+      <i data-icone="sentar" data-tamanho="16"></i>
+      <span>Sentar</span>
+      <kbd>F</kbd>
+    </button>
 
     <!-- ------------------------------------------------- conversa NPC -->
 
@@ -218,9 +247,9 @@
         <kbd>botão direito</kbd> mover <kbd>T</kbd> teto
       </span>
       <span data-modo="andar" hidden>
-        <kbd>clique</kbd> ir até o ponto <kbd>W A S D</kbd> andar
-        <kbd>espaço</kbd> pular <kbd>shift</kbd> correr
-        <kbd>arrastar</kbd> girar <kbd>Y</kbd> falar
+        <kbd>W A S D</kbd> andar <kbd>botão direito</kbd> mirar e atirar
+        <kbd>esquerdo</kbd> atirar <kbd>C</kbd> esconder
+        <kbd>espaço</kbd> pular <kbd>Y</kbd> falar
       </span>
     </p>
 

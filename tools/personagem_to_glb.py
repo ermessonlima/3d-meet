@@ -425,6 +425,49 @@ def clipe_pular(rig, t):
     return pose, loc
 
 
+def clipe_sentar(rig, t):
+    """Sentado, com uma respiração lenta para não parecer estátua.
+
+    A pelve desce 0.402 m e recua 0.22 m (0.42 afundava o pé 1.8 cm no chão): o personagem é posicionado com os PÉS
+    no chão à frente do assento, e é este deslocamento que leva o quadril para
+    cima da almofada. Fazer o contrário -- colocar a raiz sobre o assento --
+    deixaria os pés flutuando no ar.
+
+    Os joelhos a 88 graus e as coxas a 82 formam o L de quem senta. Não é 90
+    em nenhum dos dois de propósito: ângulo reto exato lê como manequim.
+    """
+    fase = 2 * math.pi * t
+    respira = math.sin(fase)
+
+    pose = _mesclar(pose_base(rig), {
+        "Thigh_L": rig.balanco("Thigh_L", 82),
+        "Thigh_R": rig.balanco("Thigh_R", 82),
+        "calf_l": rig.balanco("calf_l", -88),
+        "calf_r": rig.balanco("calf_r", -88),
+        # O pé volta ao horizontal: sem isto ele acompanha a canela e a sola
+        # aponta para a frente.
+        "Foot_L": rig.balanco("Foot_L", 8),
+        "Foot_R": rig.balanco("Foot_R", 8),
+        # Joelhos afastados, senão as pernas se interpenetram na posição sentada.
+        "Thigh_L": rig.giro("Thigh_L", FRENTE, -6) @ rig.balanco("Thigh_L", 82),
+        "Thigh_R": rig.giro("Thigh_R", FRENTE, 6) @ rig.balanco("Thigh_R", 82),
+        # Tronco levemente recostado.
+        "spine_01": rig.balanco("spine_01", -6 - 1.0 * respira),
+        "spine_03": rig.balanco("spine_03", -2 + 1.5 * respira),
+        # Braços caídos, cotovelos dobrados como quem apoia no colo.
+        "UpperArm_L": rig.balanco_braco("UpperArm_L", 18),
+        "UpperArm_R": rig.balanco_braco("UpperArm_R", 18),
+        "lowerarm_l": rig.balanco_braco("lowerarm_l", 52),
+        "lowerarm_r": rig.balanco_braco("lowerarm_r", 52),
+        "head": rig.balanco("head", 3 - 0.8 * respira),
+    })
+
+    loc = {
+        "Pelvis": CIMA * -0.402 + FRENTE * -0.22,
+    }
+    return pose, loc
+
+
 # ------------------------------------------------------------- keyframing
 
 
@@ -452,8 +495,12 @@ def gravar_clipe(rig, nome, funcao, duracao_s, passo=2):
             pb = arm.pose.bones[osso]
             pb.rotation_quaternion = pose.get(osso, Quaternion())
             if osso in loc:
-                pb.location = _eixo_local(pb, CIMA) * (loc[osso].length * rig.escala_loc
-                                                       * (1 if loc[osso].dot(CIMA) >= 0 else -1))
+                # O deslocamento vem em metros no espaço do armature e pode ter
+                # componente em qualquer eixo (sentar recua E desce). Converter
+                # a matriz de repouso inteira é o certo; projetar só em CIMA,
+                # como a versão anterior fazia, descartava o recuo em silêncio.
+                d = pb.bone.matrix_local.to_3x3().inverted() @ loc[osso]
+                pb.location = d * rig.escala_loc
             pb.keyframe_insert(data_path="rotation_quaternion", frame=f)
             pb.keyframe_insert(data_path="location", frame=f)
 
@@ -503,6 +550,7 @@ def main():
     gravar_clipe(rig, "Parado", clipe_parado, 3.0)
     gravar_clipe(rig, "Andar", clipe_andar, 1.0)
     gravar_clipe(rig, "Pular", clipe_pular, 0.85)
+    gravar_clipe(rig, "Sentar", clipe_sentar, 4.0)
 
     _limpar_pose(arm)
     exportar()

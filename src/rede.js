@@ -31,6 +31,10 @@ export class Rede {
     this.aoFala = () => {};
     this.aoSinal = () => {};
     this.aoMidia = () => {};
+    this.aoPintar = () => {};
+    this.aoDano = () => {};
+    this.aoReviver = () => {};
+    this.aoDisparo = () => {};
     this.aoDesconectar = () => {};
   }
 
@@ -82,6 +86,10 @@ export class Rede {
           case "fala": this.aoFala(msg); break;
           case "sinal": this.aoSinal(msg.de, msg.dados); break;
           case "midia": this.aoMidia(msg.id, msg.midia); break;
+          case "pintar": this.aoPintar(msg.id, msg.cor); break;
+          case "dano": this.aoDano(msg); break;
+          case "reviver": this.aoReviver(msg); break;
+          case "disparo": this.aoDisparo(msg); break;
         }
       });
 
@@ -108,7 +116,7 @@ export class Rede {
    * Só envia quando algo mudou de verdade: parado em pé, um jogador não gasta
    * banda nenhuma, e o servidor mantém o último estado conhecido.
    */
-  enviarEstado(posicao, yaw, anim) {
+  enviarEstado(posicao, yaw, anim, escondido = false) {
     if (!this.conectado || this.ws.readyState !== WebSocket.OPEN) return;
 
     const agora = performance.now();
@@ -120,6 +128,7 @@ export class Rede {
       Math.round(posicao.z * 100) / 100,
       Math.round(yaw * 100) / 100,
       anim,
+      escondido,
     ];
     if (this._ultimoEstado && novo.every((v, i) => v === this._ultimoEstado[i])) {
       return;
@@ -128,7 +137,9 @@ export class Rede {
     this._ultimoEnvio = agora;
     this._ultimoEstado = novo;
     this.ws.send(
-      JSON.stringify({ tipo: "estado", p: novo.slice(0, 3), y: novo[3], a: anim }),
+      JSON.stringify({
+        tipo: "estado", p: novo.slice(0, 3), y: novo[3], a: anim, e: escondido,
+      }),
     );
   }
 
@@ -147,6 +158,22 @@ export class Rede {
   enviarMidia(estado) {
     if (!this.conectado) return;
     this.ws.send(JSON.stringify({ tipo: "midia", ...estado }));
+  }
+
+  pintar(cor) {
+    if (this.conectado) this.ws.send(JSON.stringify({ tipo: "pintar", cor }));
+  }
+
+  atirar(alvo, origem, fim) {
+    if (!this.conectado) return;
+    const v = (p) => [
+      Math.round(p.x * 100) / 100,
+      Math.round(p.y * 100) / 100,
+      Math.round(p.z * 100) / 100,
+    ];
+    this.ws.send(JSON.stringify({
+      tipo: "tiro", alvo: alvo ?? null, o: v(origem), f: v(fim),
+    }));
   }
 
   desconectar() {

@@ -18,6 +18,9 @@ import { TilesVideo } from "./tilesVideo.js";
 import { montarIcones, trocarIcone } from "./icones.js";
 import { GradeDeNavegacao } from "./navegacao.js";
 import { MarcadorDeDestino } from "./marcador.js";
+import { Assentos } from "./assentos.js";
+import { Combate } from "./combate.js";
+import { PoderesDaLagartixa, PALETA, CORPO as CORPO_LAGARTIXA, pintarRemoto } from "./lagartixa.js";
 
 montarIcones();
 
@@ -137,6 +140,13 @@ let painelChat = null;
 let tiles = null;
 let grade = null;
 let marcador = null;
+const assentos = new Assentos();
+let assentoPerto = null;
+let combate = null;
+let poderes = null;      // só existe quando se joga de lagartixa
+let souLagartixa = false;
+let abatido = false;
+const _alvoTiro = new THREE.Vector3();
 
 let andando = false;
 let conversando = false;
@@ -171,9 +181,14 @@ async function carregar() {
   await new Promise((r) => setTimeout(r, 0));
   grade = new GradeDeNavegacao(colisor);
   console.info("[navegação]", grade.construir());
+  console.info("[assentos]", await assentos.carregar(), "lugares");
 
   cameraJogo = new CameraTerceiraPessoa(camera, renderer.domElement, colisor);
   marcador = new MarcadorDeDestino(scene);
+  combate = new Combate(scene, camera, colisor, renderer.domElement);
+  await combate.carregarArma().catch((e) =>
+    console.warn("[combate] arma não carregou:", e.message),
+  );
   remotos = new JogadoresRemotos(scene, renderer);
 
   mostrarEtapa("Posicionando o NPC");
@@ -201,6 +216,7 @@ async function carregar() {
   configurarModo();
   configurarRede();
   configurarMidia();
+  configurarAssentos();
 
   esconderCarregando();
   elHud.hidden = false;
@@ -244,16 +260,31 @@ lobby.aoConfirmar = async (pedido) => {
   elCarregando.hidden = false;
   elCarregando.classList.remove("saindo");
 
+  souLagartixa = pedido.perfil.papel === "lagartixa";
+
   const { modelo, clipes } = await carregarPersonagem(
     renderer,
-    `/models/personagens/${pedido.perfil.personagem}.glb`,
+    souLagartixa
+      ? "/models/lagartixa.glb"
+      : `/models/personagens/${pedido.perfil.personagem}.glb`,
   );
 
-  jogador = new Jogador(modelo, clipes, colisor);
+  jogador = new Jogador(
+    modelo, clipes, colisor,
+    souLagartixa ? CORPO_LAGARTIXA : {},
+  );
+
+  if (souLagartixa) {
+    poderes = new PoderesDaLagartixa(jogador);
+  } else {
+    // A arma vira filha do osso da mão e acompanha a animação sozinha.
+    combate.equipar(modelo);
+  }
   jogador.nascerEm(nascimento);
   scene.add(jogador.raiz);
   balaoProprio = new Balao(jogador.raiz);
   configurarCliqueParaAndar();
+  configurarCombate();
 
   // Os avatares 3D dependem do colisor e da cena montada, então vêm agora --
   // ao contrário da malha, eles aguentam esperar.
@@ -353,6 +384,51 @@ function configurarRede() {
     const jog = naSala.get(id);
     if (jog) jog.midia = estado;
     tiles.aplicarMidia(id, estado);
+  };
+
+  rede.aoPintar = (id, cor) => {
+    const perfil = naSala.get(id);
+    if (perfil) perfil.pintura = cor;
+    const remoto = remotos.mapa.get(id);
+    if (remoto) pintarRemoto(remoto.raiz, cor, remoto.escondido);
+  };
+
+  rede.aoDisparo = ({ o, f }) => {
+    combate.desenharRastro(
+      new THREE.Vector3(o[0], o[1], o[2]),
+      new THREE.Vector3(f[0], f[1], f[2]),
+    );
+  };
+
+  rede.aoDano = ({ alvo, vida }) => {
+    const perfil = naSala.get(alvo);
+    if (perfil) perfil.vida = vida;
+    if (alvo !== rede.meuId) return;
+
+    combate.vida = vida;
+    if (!souLagartixa) pintarVida();
+    piscarDano();
+
+    if (vida === 0) {
+      abatido = true;
+      el("abatido").hidden = false;
+      jogador?.cancelarCaminho();
+      poderes?.esconder(false);
+    }
+  };
+
+  rede.aoReviver = ({ alvo, vida }) => {
+    const perfil = naSala.get(alvo);
+    if (perfil) perfil.vida = vida;
+    if (alvo !== rede.meuId) return;
+
+    abatido = false;
+    combate.vida = vida;
+    if (!souLagartixa) pintarVida();
+    el("abatido").hidden = true;
+    // Volta ao ponto de nascimento: reaparecer onde levou o tiro seria
+    // aparecer na mira de quem atirou.
+    jogador?.nascerEm(nascimento);
   };
 
   rede.aoDesconectar = () => {
@@ -483,6 +559,152 @@ function configurarMidia() {
   painelChat.aoEnviar = (texto) => rede.falar(texto);
 }
 
+// ------------------------------------------------------------ combate
+
+function pintarVida() {
+  const pontos = el("vida").querySelector(".pontos");
+  pontos.replaceChildren();
+  for (let i = 0; i < combate.vidaMaxima; i++) {
+    const p = document.createElement("span");
+    p.className = "ponto" + (i < combate.vida ? "" : " vazio");
+    pontos.append(p);
+  }
+}
+
+function piscarDano() {
+  document.body.classList.add("levou-tiro");
+  setTimeout(() => document.body.classList.remove("levou-tiro"), 140);
+}
+
+/**
+ * Lista de alvos para o hitscan.
+ *
+ * A lagartixa tem uma esfera menor e mais baixa: usar a caixa de uma pessoa
+ * nela seria acertar o ar acima do bicho. Quem está escondido continua
+ * acertável -- esconder é ficar difícil de VER, não intangível.
+ */
+function alvosVisiveis() {
+  const lista = [];
+  for (const [id, remoto] of remotos.mapa) {
+    if (!remoto) continue;
+    const perfil = naSala.get(id);
+    const bicho = perfil?.papel === "lagartixa";
+    lista.push({
+      id,
+      objeto3d: remoto.raiz,
+      raio: bicho ? 0.22 : 0.45,
+      centroY: bicho ? 0.12 : 1.0,
+    });
+  }
+  return lista;
+}
+
+function configurarCombate() {
+  // A lagartixa não atira: a vantagem dela é sumir, não trocar tiros.
+  combate.podeAtirar = () =>
+    andando && !souLagartixa && !abatido && !conversando && !digitando
+    && !painelChat?.digitando && !jogador?.sentado;
+
+  combate.listarAlvos = alvosVisiveis;
+
+  // A câmera interpreta o mouse e avisa; o combate só reage.
+  cameraJogo.aoClicar = () => combate.puxarGatilho();
+  cameraJogo.aoTocarDireito = () => combate.puxarGatilho();
+  cameraJogo.aoMirar = (sim) => combate.definirMira(sim);
+  // Todo disparo é anunciado, mesmo errando: o rastro é o que conta.
+  combate.aoAtirar = (boca, fim, alvoId) => rede.atirar(alvoId, boca, fim);
+  combate.aoAcertar = () => {};
+  combate.ativar();
+
+  if (souLagartixa) {
+    el("paleta").hidden = false;
+    montarPaleta();
+  } else {
+    el("vida").hidden = false;
+    pintarVida();
+  }
+}
+
+function montarPaleta() {
+  const cores = el("paleta").querySelector(".cores");
+  cores.replaceChildren();
+  for (const tinta of PALETA) {
+    const botao = document.createElement("button");
+    botao.type = "button";
+    botao.className = "tinta";
+    botao.style.setProperty("--c", tinta.cor);
+    botao.dataset.cor = tinta.cor;
+    botao.title = tinta.nome;
+    botao.setAttribute("aria-pressed", String(tinta.cor === poderes.cor));
+    botao.addEventListener("click", () => {
+      poderes.pintar(tinta.cor);
+      rede.pintar(tinta.cor);
+      for (const outro of cores.children) {
+        outro.setAttribute("aria-pressed", String(outro.dataset.cor === tinta.cor));
+      }
+    });
+    cores.append(botao);
+  }
+}
+
+// ------------------------------------------------------------ sentar
+
+/**
+ * Botão de sentar, que aparece ao chegar perto de um sofá.
+ *
+ * Sentar é local e imediato: o corpo é encaixado no assento e a animação
+ * "Sentar" entra por cima. A rede leva só a posição, o giro e o nome da
+ * animação -- os outros jogadores veem a pessoa sentada sem precisar de
+ * mensagem nova, porque `Sentar` já viaja no mesmo campo de sempre.
+ */
+function configurarAssentos() {
+  const botao = el("btn-sentar");
+
+  const acionar = () => {
+    if (!andando || conversando || digitando || !jogador) return;
+
+    if (jogador.sentado) {
+      jogador.levantar();
+      assentos.liberar(rede.meuId);
+      return;
+    }
+    if (!assentoPerto) return;
+
+    jogador.sentar(assentoPerto.ponto, assentoPerto.angulo);
+    assentos.ocupar(assentoPerto.indice, rede.meuId);
+    marcador.esconder();
+  };
+
+  botao.addEventListener("click", acionar);
+  addEventListener("keydown", (evento) => {
+    if (evento.code === "KeyF" && !evento.repeat) acionar();
+    if (evento.code === "KeyC" && !evento.repeat && poderes && andando
+        && !digitando && !painelChat?.digitando && !conversando) {
+      poderes.esconder(!poderes.escondida);
+    }
+  });
+}
+
+function atualizarBotaoDeSentar() {
+  const botao = el("btn-sentar");
+
+  if (jogador.sentado) {
+    assentoPerto = null;
+    trocarIcone(botao.querySelector("i"), "levantar", 16);
+    botao.querySelector("span").textContent = "Levantar";
+    botao.hidden = digitando || conversando;
+    return;
+  }
+
+  assentoPerto = assentos.maisProximo(jogador.posicao, rede.meuId);
+  const mostrar = Boolean(assentoPerto) && !digitando && !conversando;
+  if (mostrar && botao.hidden) {
+    trocarIcone(botao.querySelector("i"), "sentar", 16);
+    botao.querySelector("span").textContent = "Sentar";
+  }
+  botao.hidden = !mostrar;
+}
+
 // -------------------------------------------------- clicar e caminhar
 
 const _raioClique = new THREE.Raycaster();
@@ -536,34 +758,12 @@ function chaoAbaixoDe(ponto) {
 }
 
 function configurarCliqueParaAndar() {
-  cameraJogo.aoClicar = (evento) => {
-    if (!andando || conversando || digitando || !jogador) return;
-
-    const alvo = alvoDoClique(evento);
-    if (!alvo) return;
-
-    // Caminho direto só faz sentido se o clique caiu numa horizontal.
-    let caminho = alvo.horizontal
-      ? grade.encontrarCaminho(jogador.posicao, alvo.ponto)
-      : null;
-
-    // Duas situações levam ao mesmo remédio: clicar no alto de algo (tampo de
-    // mesa, prateleira, telhado -- horizontal, mas inalcançável a pé) e clicar
-    // numa vertical (parede, armário). Nos dois casos a intenção é o chão
-    // logo abaixo daquele ponto, então é para lá que vamos.
-    if (!caminho) {
-      const abaixo = chaoAbaixoDe(alvo.ponto);
-      if (abaixo) caminho = grade.encontrarCaminho(jogador.posicao, abaixo);
-    }
-
-    // Ainda sem rota: o outro lado de uma parede sem porta, ou uma ilha de
-    // chão isolada. Obedecer seria impossível; piscar um aviso seria ruído.
-    if (!caminho) return;
-
-    marcador.mostrar(caminho[caminho.length - 1]);
-    jogador.seguirCaminho(caminho);
-  };
-
+  // O clique-para-andar foi removido: o mesmo botão andando e atirando
+  // confundia -- você mirava num adversário, clicava, e o personagem saía
+  // caminhando até ele. Movimento é WASD.
+  //
+  // `alvoDoClique`, `chaoAbaixoDe` e a grade de navegação continuam no código
+  // e testados; religar é voltar a atribuir `cameraJogo.aoClicar` aqui.
   jogador.aoChegar = () => marcador.esconder();
 }
 
@@ -624,7 +824,10 @@ function sairDoModoAndar() {
   andando = false;
   encerrarConversa();
   jogador?.cancelarCaminho();
+  jogador?.levantar();
+  assentos.liberar(rede.meuId);
   marcador?.esconder();
+  el("btn-sentar").hidden = true;
   const botao = el("alternar-modo");
   botao.setAttribute("aria-pressed", "false");
   botao.textContent = "Entrar com o personagem";
@@ -663,12 +866,20 @@ function animar(agora) {
   }
 
   if (andando && jogador) {
-    const congelado = conversando || digitando || painelChat?.digitando;
-    const entrada = congelado ? PARADO : lerEntrada();
+    const congelado =
+      conversando || digitando || painelChat?.digitando || abatido;
+    let entrada = congelado ? PARADO : lerEntrada();
+    if (poderes) entrada = poderes.filtrarEntrada(entrada);
     jogador.atualizar(dt, entrada, camera);
     jogador.alvoDaCamera(_alvo);
 
-    rede.enviarEstado(jogador.posicao, jogador.olhandoPara, jogador.nomeAtual);
+    rede.enviarEstado(
+      jogador.posicao, jogador.olhandoPara, jogador.nomeAtual,
+      poderes?.escondida ?? false,
+    );
+
+    // A cruz de mira só aparece com o botão direito pressionado.
+    el("mira").hidden = !combate.mirando;
 
     const perto = npc.atualizar(dt, jogador.posicao);
     if (conversando) {
@@ -676,8 +887,10 @@ function animar(agora) {
       cameraJogo.enquadrarConversa(dt, _alvoNpc, jogador.posicao);
       if (!perto) encerrarConversa();
     } else {
-      cameraJogo.atualizar(dt, _alvo);
+      if (combate.mirando) cameraJogo.enquadrarMira(dt, _alvo);
+      else cameraJogo.atualizar(dt, _alvo);
       el("aviso-interagir").hidden = !perto || digitando || painelChat?.digitando;
+      atualizarBotaoDeSentar();
     }
     balaoProprio?.atualizar(camera);
     marcador?.atualizar();
@@ -685,6 +898,10 @@ function animar(agora) {
     controls.update();
   }
 
+  // Fora do ramo de caminhada: rastros de tiros de OUTROS chegam mesmo com a
+  // câmera em órbita, e sem isto ficariam acesos para sempre.
+  combate?.atualizarProjeteis(dt);
+  combate?.atualizarRastros();
   remotos?.atualizar(dt, camera);
   renderer.render(scene, camera);
   atualizarHud(agora);
@@ -702,8 +919,12 @@ if (import.meta.env.DEV) {
     palco, rede, naSala, lobby,
     // Getters, não valores: este objeto é montado na avaliação do módulo,
     // quando quase tudo ainda é null.
-    midia,
+    midia, assentos,
     get remotos() { return remotos; },
+    get combate() { return combate; },
+    get poderes() { return poderes; },
+    get souLagartixa() { return souLagartixa; },
+    get abatido() { return abatido; },
     get grade() { return grade; },
     get marcador() { return marcador; },
     get colisor() { return colisor; },
