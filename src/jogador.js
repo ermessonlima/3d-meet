@@ -32,11 +32,44 @@ export class Jogador {
     this.raiz.add(modelo);
     this.modelo = modelo;
     this.colisor = colisor;
+    /**
+     * Colisor extra do telhado, se houver.
+     *
+     * Vem separado porque o principal é usado para ACHAR CHÃO com raios de
+     * cima para baixo, e a laje atrapalharia essa busca. Para a cápsula, os
+     * dois são a mesma coisa: um monte de triângulo do qual sair.
+     */
+    this.coberturas = opcoes.coberturas ?? [];
 
     this.posicao = new THREE.Vector3();   // nos PES do personagem
     this.velocidade = new THREE.Vector3();
     this.noChao = false;
     this.olhandoPara = 0;
+
+    /**
+     * Escalada de lagartixa.
+     *
+     * Ligada, o "para baixo" do bicho deixa de ser o Y do mundo e passa a ser
+     * `-cima`, que acompanha a superfície onde ele está grudado. A gravidade
+     * então PRENDE contra a parede em vez de puxar para o chão -- que é o
+     * mesmo truque que uma osga de verdade usa, só que com física em vez de
+     * lamelas.
+     */
+    this.escalar = opcoes.escalar === true;
+    this.cima = new THREE.Vector3(0, 1, 0);
+    this.frente = new THREE.Vector3(0, 0, 1);
+    /** true quando grudada em algo que não é o chão do mundo. */
+    this.escalando = false;
+
+    this._raioEscalada = new THREE.Raycaster();
+    this._raioEscalada.firstHitOnly = true;
+    this._normal = new THREE.Vector3();
+    this._sonda = new THREE.Vector3();
+    this._centro = new THREE.Vector3();
+    this._base = new THREE.Matrix4();
+    this._eixoX = new THREE.Vector3();
+    /** Velocidade ao longo de `cima`; é a antiga `velocidade.y` generalizada. */
+    this._velNormal = 0;
 
     this.sentado = false;
 
@@ -82,12 +115,141 @@ export class Jogador {
   nascerEm(ponto) {
     this.posicao.copy(ponto);
     this.velocidade.set(0, 0, 0);
+    this._velNormal = 0;
+    this.cima.set(0, 1, 0);
+    this.escalando = false;
+    this.frente.set(Math.sin(this.olhandoPara), 0, Math.cos(this.olhandoPara));
+    // O primeiro passo depois de nascer ENCAIXA a frente, em vez de amortecer.
+    //
+    // Deduzir a frente de `olhandoPara` não bastava: nascendo, ele é 0 -- e a
+    // câmera também nasce com yaw 0, onde o "para frente" dela é -Z. Os dois
+    // zeros apontavam para lados opostos, então o bicho saía andando de costas
+    // até o amortecimento dar a volta. Em vez de acertar o ângulo inicial no
+    // chute (e errar de novo a cada renascimento, com a câmera onde estiver),
+    // o primeiro quadro de marcha copia a direção do movimento inteira.
+    this._encaixarFrente = true;
     this._sincronizar();
   }
 
   _sincronizar() {
     this.raiz.position.copy(this.posicao);
-    this.raiz.rotation.y = this.olhandoPara;
+
+    if (!this.escalar) {
+      this.raiz.rotation.y = this.olhandoPara;
+      return;
+    }
+
+    // Escalando não dá para usar só o yaw: a barriga tem que encarar a
+    // superfície. A base sai de (frente, cima) -- o modelo foi exportado com
+    // +Y para cima e +Z para a frente, então os eixos entram direto.
+    this._sonda.copy(this.frente);
+    this._sonda.addScaledVector(this.cima, -this._sonda.dot(this.cima));
+    if (this._sonda.lengthSq() < 1e-8) {
+      // Frente paralela à normal (aconteceu de virar a quina): pega qualquer
+      // direção do plano em vez de produzir uma base degenerada.
+      this._sonda.set(this.cima.y, this.cima.z, this.cima.x)
+        .addScaledVector(this.cima, -this.cima.dot(this._sonda));
+    }
+    this._sonda.normalize();
+    this._eixoX.crossVectors(this.cima, this._sonda).normalize();
+    this._base.makeBasis(this._eixoX, this.cima, this._sonda);
+    this.raiz.quaternion.setFromRotationMatrix(this._base);
+  }
+
+  /**
+   * Procura superfície para grudar e ajusta `cima` para a normal dela.
+   *
+   * A regra é a do bicho: gruda no que encosta. Sondas curtas saem do centro
+   * da cápsula para onde o corpo anda, para os lados, e para trás-e-para-baixo
+   * -- essa última é o que faz virar a quina de uma mesa e continuar por
+   * baixo, em vez de andar até a beirada e despencar.
+   */
+  _buscarSuperficie(dt, querendoAndar) {
+    const alcance = this.raio * 2.4 + 0.10;
+    // Distância curta para AGARRAR algo novo: com alcance folgado, a lagartixa
+    // grudaria numa parede antes mesmo de chegar perto dela.
+    const agarrar = this.raio * 1.8;
+    this._centro.copy(this.posicao).addScaledVector(this.cima, this.raio);
+
+    const lado = this._reusar(6).crossVectors(this.cima, this.frente);
+    if (lado.lengthSq() < 1e-8) lado.set(1, 0, 0);
+    lado.normalize();
+
+    // A ordem importa, e é ela que dá estabilidade:
+    //
+    // 1. Superfície PARA ONDE O BICHO ANDA. É o gesto deliberado de trocar de
+    //    plano -- andar contra a parede é dizer "quero subir por ali". Sem
+    //    esta prioridade a escalada nunca começa, porque de pé no chão o chão
+    //    está sempre mais perto do que a parede à frente.
+    // 2. A superfície ATUAL, logo abaixo dos pés. Mantê-la enquanto existir é
+    //    o que impede o vaivém: sem isso, perto do rodapé a parede e o chão
+    //    disputam a cada quadro e o bicho fica pulando entre os dois.
+    // 3. Qualquer coisa ao redor -- inclusive para trás e para baixo, que é o
+    //    que faz dobrar por baixo da quina de uma mesa em vez de despencar.
+    let melhor = null;
+    if (querendoAndar) {
+      melhor = this._sondar(this._reusar(1).copy(this.frente), agarrar);
+    }
+    if (!melhor) {
+      melhor = this._sondar(this._reusar(0).copy(this.cima).negate(), alcance);
+    }
+    if (!melhor) {
+      const direcoes = [
+        this._reusar(2).copy(this.frente).negate(),
+        this._reusar(3).copy(lado),
+        this._reusar(4).copy(lado).negate(),
+        this._reusar(5).copy(this.frente).negate().addScaledVector(this.cima, -1).normalize(),
+      ];
+      for (const dir of direcoes) {
+        const toque = this._sondar(dir, alcance);
+        if (toque && (!melhor || toque.distance < melhor.distance)) melhor = toque;
+      }
+    }
+
+    if (!melhor) {
+      this._voltarAoMundo(dt);
+      return;
+    }
+
+    this._normal.copy(melhor.face.normal)
+      .transformDirection(melhor.object.matrixWorld)
+      .normalize();
+    // A normal exportada pode apontar para dentro da parede. A que interessa é
+    // a virada para o bicho; a outra empurraria a gravidade para o concreto.
+    this._sonda.copy(this._centro).sub(melhor.point);
+    if (this._normal.dot(this._sonda) < 0) this._normal.negate();
+
+    this.escalando = this._normal.y < 0.72;
+    // Suave: virar 90 graus num quadro só daria um tranco na câmera.
+    this.cima.lerp(this._normal, Math.min(1, dt * 9)).normalize();
+  }
+
+  _sondar(dir, alcance) {
+    if (!Number.isFinite(dir.x) || dir.lengthSq() < 1e-8) return null;
+    this._raioEscalada.set(this._centro, dir);
+    this._raioEscalada.near = 0;
+    this._raioEscalada.far = alcance;
+    const toque = this._raioEscalada.intersectObject(this.colisor, true)[0];
+    return toque?.face ? toque : null;
+  }
+
+  /** Vetores reaproveitados: a sonda roda todo quadro e não pode alocar. */
+  _reusar(i) {
+    this._pool ??= Array.from({ length: 7 }, () => new THREE.Vector3());
+    return this._pool[i];
+  }
+
+  _voltarAoMundo(dt) {
+    this.escalando = false;
+    if (this.cima.y > 0.9995) return;
+    this._sonda.set(0, 1, 0);
+    this.cima.lerp(this._sonda, Math.min(1, dt * 6)).normalize();
+  }
+
+  /** Solta da parede: volta a ser um bicho com gravidade normal. */
+  _largarSuperficie() {
+    this.escalando = false;
+    this.cima.set(0, 1, 0);
   }
 
   _trocarPara(nome, mistura = 0.16) {
@@ -123,6 +285,9 @@ export class Jogador {
     this.posicao.copy(ponto);
     this.olhandoPara = angulo;
     this.velocidade.set(0, 0, 0);
+    this._velNormal = 0;
+    this.cima.set(0, 1, 0);
+    this.escalando = false;
     this._sincronizar();
     this._trocarPara("Sentar", 0.35);
   }
@@ -228,13 +393,42 @@ export class Jogador {
       }
     }
 
+    // ---- procura superfície para grudar (só lagartixa)
+    if (this.escalar) {
+      const querendoAndar = Boolean(
+        entrada.frente || entrada.tras || entrada.esquerda || entrada.direita,
+      );
+      this._buscarSuperficie(dt, querendoAndar);
+    }
+
     // ---- direcao desejada, relativa a camera
+    //
+    // O eixo da frente é o da câmera achatado no plano da SUPERFÍCIE, não no
+    // plano do chão. Grudada numa parede, empurrar "para frente" sobe por ela.
     this._direcao.set(0, 0, 0);
     const eixoZ = new THREE.Vector3();
-    camera.getWorldDirection(eixoZ);
-    eixoZ.y = 0;
-    eixoZ.normalize();
-    const eixoX = new THREE.Vector3().crossVectors(eixoZ, new THREE.Vector3(0, 1, 0)).negate();
+
+    if (this.escalar) {
+      // A base sai da DIREITA da câmera, não da frente dela.
+      //
+      // Projetar a frente da câmera no plano da parede degenera justamente
+      // quando se olha de frente para ela -- que é o momento em que se quer
+      // subir. O que sobrava do vetor era o resto da inclinação, apontando
+      // para BAIXO: segurar "para frente" empurrava o bicho contra o chão.
+      // A direita da câmera continua paralela à parede nessa situação, então
+      // dá uma base estável, e "para frente" vira "para cima na parede".
+      this._sonda.set(1, 0, 0).applyQuaternion(camera.quaternion);
+      this._sonda.addScaledVector(this.cima, -this._sonda.dot(this.cima));
+      if (this._sonda.lengthSq() < 1e-6) this._sonda.set(1, 0, 0);
+      this._sonda.normalize();
+      eixoZ.crossVectors(this.cima, this._sonda).normalize();
+    } else {
+      camera.getWorldDirection(eixoZ);
+      eixoZ.y = 0;
+      eixoZ.normalize();
+    }
+
+    const eixoX = new THREE.Vector3().crossVectors(eixoZ, this.cima).negate();
 
     if (entrada.frente) this._direcao.add(eixoZ);
     if (entrada.tras) this._direcao.sub(eixoZ);
@@ -254,15 +448,22 @@ export class Jogador {
     const velocidade = entrada.correndo ? this.velCorrida : this.velCaminhada;
 
     // ---- integra
-    this.velocidade.y += GRAVIDADE * dt;
+    //
+    // A gravidade age ao longo de `-cima`, não do Y do mundo. No chão os dois
+    // são a mesma coisa; numa parede, é o que segura o bicho colado.
+    this._velNormal += GRAVIDADE * dt;
     if (entrada.pular && this.noChao) {
-      this.velocidade.y = this.impulsoPulo;
+      this._velNormal = this.impulsoPulo;
       this.noChao = false;
+      // Pular numa parede é SOLTAR-SE dela: o impulso sai perpendicular à
+      // superfície e o corpo volta a cair para o chão do mundo.
+      if (this.escalando) this._largarSuperficie();
       this._trocarPara("Pular", 0.08);
     }
 
     this.posicao.addScaledVector(this._direcao, velocidade * dt * (andando ? 1 : 0));
-    this.posicao.y += this.velocidade.y * dt;
+    this.posicao.addScaledVector(this.cima, this._velNormal * dt);
+    this.velocidade.copy(this.cima).multiplyScalar(this._velNormal);
 
     this._resolverColisao(dt);
 
@@ -274,7 +475,19 @@ export class Jogador {
       let d = alvo - this.olhandoPara;
       while (d > Math.PI) d -= Math.PI * 2;
       while (d < -Math.PI) d += Math.PI * 2;
-      this.olhandoPara += d * Math.min(1, dt * 14);
+      const giro = this._encaixarFrente ? 1 : Math.min(1, dt * 14);
+      this.olhandoPara += d * giro;
+
+      // Escalando, o giro não cabe num ângulo só: a frente é um vetor no plano
+      // da superfície. Ele é suavizado para o corpo não estalar de direção ao
+      // virar a esquina de uma quina.
+      if (this.escalar) {
+        this.frente.lerp(this._direcao, giro);
+        this.frente.addScaledVector(this.cima, -this.frente.dot(this.cima));
+        if (this.frente.lengthSq() < 1e-8) this.frente.set(0, 0, 1);
+        this.frente.normalize();
+      }
+      this._encaixarFrente = false;
     }
 
     this._sincronizar();
@@ -283,7 +496,17 @@ export class Jogador {
 
   _animar(dt, andando, velocidade) {
     if (this.poseFixa) {
-      this._trocarPara(this.poseFixa, 0.28);
+      // Andando, usa o par que caminha da MESMA pose, se existir. Sem ele o
+      // corpo desliza pelo chão com as patas paradas -- e a pose deixaria de
+      // ser uma escolha para virar um defeito visível.
+      const emMarcha = andando && this.noChao && this.acoes[`${this.poseFixa}Andar`];
+      const alvo = emMarcha ? `${this.poseFixa}Andar` : this.poseFixa;
+      this._trocarPara(alvo, 0.22);
+      if (emMarcha) {
+        // Casa o ciclo com o deslocamento, como no "Andar" normal, senão o pé
+        // patina em quem anda devagar.
+        this.acoes[alvo].timeScale = velocidade / this.avancoPorCiclo;
+      }
       this.mixer.update(dt);
       return;
     }
@@ -318,7 +541,7 @@ export class Jogador {
     this._caixa.min.addScalar(-this.raio);
     this._caixa.max.addScalar(this.raio);
 
-    bvh.shapecast({
+    const empurrar = {
       intersectsBounds: (caixa) => caixa.intersectsBox(this._caixa),
       intersectsTriangle: (tri) => {
         const dist = tri.closestPointToSegment(this._seg, this._tri, this._cap);
@@ -329,19 +552,28 @@ export class Jogador {
           this._seg.end.addScaledVector(direcao, profundidade);
         }
       },
-    });
+    };
+
+    bvh.shapecast(empurrar);
+    // O telhado entra na mesma conta: sem ele, basta pular de cima de um móvel
+    // para chegar ao topo das paredes e ver a planta inteira do escritório --
+    // que numa caçada de esconde-esconde é o mesmo que ver todo mundo.
+    for (const extra of this.coberturas) extra.geometry.boundsTree.shapecast(empurrar);
 
     this._delta.copy(this._seg.start).sub(this._antes);
 
     // Queda daquele frame como referencia: se a correcao vertical foi maior,
     // o que interrompeu a queda foi o chao, e nao um roçar em parede.
-    const queda = Math.abs(dt * this.velocidade.y);
-    this.noChao = this._delta.y > Math.max(queda * 0.25, 1e-4);
+    // Projetado em `cima`, e não no Y do mundo: numa parede, "pousar" é ser
+    // empurrado na direção da normal dela.
+    const queda = Math.abs(dt * this._velNormal);
+    this.noChao = this._delta.dot(this.cima) > Math.max(queda * 0.25, 1e-4);
 
     this.posicao.add(this._delta);
 
     if (this.noChao) {
       this.velocidade.set(0, 0, 0);
+      this._velNormal = 0;
     } else if (this._delta.lengthSq() > 1e-10) {
       // Bateu em algo que nao e chao: remove so a componente da velocidade
       // que entrava na parede, preservando o deslize ao longo dela.
@@ -350,9 +582,16 @@ export class Jogador {
     }
   }
 
-  /** Ponto que a camera deve mirar: o peito, nao os pes. */
+  /**
+   * Ponto que a camera deve mirar: o peito, nao os pes.
+   *
+   * O afastamento sai ao longo de `cima`, e nao do Y do mundo. Grudada numa
+   * parede, somar no Y deixava o ponto de mira DENTRO dela -- a sonda da
+   * camera batia no concreto, o braço colapsava e a tela virava um bloco
+   * marrom. Ao longo da normal, o alvo cai no ar livre do cômodo.
+   */
   alvoDaCamera(destino) {
-    return destino.copy(this.posicao).addScaledVector(new THREE.Vector3(0, 1, 0), this.alvoCamera ?? 1.25);
+    return destino.copy(this.posicao).addScaledVector(this.cima, this.alvoCamera ?? 1.25);
   }
 }
 

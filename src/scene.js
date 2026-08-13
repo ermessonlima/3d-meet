@@ -70,7 +70,9 @@ export function criarPalco(canvas) {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  return { renderer, scene, camera, controls, sol, hemisferio };
+  // `preenchimento` sai daqui junto com os outros porque o poder de apagar a
+  // luz precisa mexer em TODAS as fontes -- deixar uma acesa não escurece nada.
+  return { renderer, scene, camera, controls, sol, hemisferio, preenchimento };
 }
 
 /**

@@ -376,6 +376,70 @@ def anim_encolhida(t, f, p):
         _chave(p[seg], f, rot=_eixo((0, 0, 1), 48 + 0.8 * math.sin(fase - i)))
 
 
+# ------------------------------------------------- as poses, andando
+#
+# Cada pose tem um par que caminha. Sem eles, manter a pose andando faz o corpo
+# DESLIZAR pelo chao com as patas paradas -- o erro classico de patinacao. Sao
+# ciclos curtos, com o mesmo desenho da pose parada por baixo: o que muda e o
+# passo, para a silhueta escolhida continuar sendo a que se ve.
+
+
+def anim_em_pe_andar(t, f, p):
+    """Empinada, dando passos com as traseiras."""
+    fase = 2 * math.pi * t
+    _chave(p["corpo"], f,
+           rot=_eixo((1, 0, 0), 62 + 2.5 * math.sin(fase * 2)),
+           loc=(0, -0.012, ALTURA_CORPO + 0.055 + 0.006 * abs(math.sin(fase))))
+    _chave(p["cabeca"], f,
+           rot=_eixo((1, 0, 0), -34) @ _eixo((0, 0, 1), 7 * math.sin(fase)))
+    # Dianteiras balancam junto ao peito, como bracos.
+    for nome, desloc in (("FL", 0), ("FR", math.pi)):
+        _chave(p["pata_" + nome], f, rot=_eixo((1, 0, 0), -74 + 12 * math.sin(fase + desloc)))
+    # Traseiras alternadas: e o passo de verdade.
+    for nome, desloc in (("TL", 0), ("TR", math.pi)):
+        _chave(p["pata_" + nome], f, rot=_eixo((1, 0, 0), -50 + 30 * math.sin(fase + desloc)))
+    # A cauda varre para o lado oposto ao passo, equilibrando.
+    for i, seg in enumerate(("cauda_1", "cauda_2", "cauda_3")):
+        _chave(p[seg], f,
+               rot=_eixo((1, 0, 0), -22) @ _eixo((0, 0, 1), 9 * math.sin(fase - (i + 1) * 0.8)))
+
+
+def anim_deitada_andar(t, f, p):
+    """Rastejando: o corpo ondula e as patas remam junto ao chao."""
+    fase = 2 * math.pi * t
+    _chave(p["corpo"], f,
+           rot=_eixo((1, 0, 0), -2) @ _eixo((0, 0, 1), 7 * math.sin(fase)),
+           loc=(0, 0, 0.022 + 0.003 * abs(math.sin(fase))))
+    _chave(p["cabeca"], f, rot=_eixo((1, 0, 0), 6) @ _eixo((0, 0, 1), -6 * math.sin(fase)))
+    passo = {"FL": 0, "TR": 0, "FR": math.pi, "TL": math.pi}
+    for nome, desloc in passo.items():
+        sx = 1 if nome.endswith("L") else -1
+        base = -62 if nome.startswith("F") else 58
+        _chave(p["pata_" + nome], f,
+               rot=_eixo((0, 1, 0), sx * 84) @ _eixo((1, 0, 0), base + 26 * math.sin(fase + desloc)))
+    # Cauda ondulando atras, como lagarto rastejando.
+    for i, seg in enumerate(("cauda_1", "cauda_2", "cauda_3")):
+        _chave(p[seg], f, rot=_eixo((0, 0, 1), 13 * math.sin(fase - (i + 1) * 0.9)))
+
+
+def anim_encolhida_andar(t, f, p):
+    """Enrolada, em passinhos curtos. Nao desenrola: a silhueta e o ponto."""
+    fase = 2 * math.pi * t
+    respira = math.sin(fase * 2)
+    _chave(p["corpo"], f,
+           rot=_eixo((1, 0, 0), -8) @ _eixo((0, 0, 1), 3 * math.sin(fase)),
+           loc=(0, 0, ALTURA_CORPO * 0.72 + 0.004 * abs(respira)))
+    _chave(p["cabeca"], f, rot=_eixo((0, 0, 1), 68) @ _eixo((1, 0, 0), 22))
+    passo = {"FL": 0, "TR": 0, "FR": math.pi, "TL": math.pi}
+    for nome, desloc in passo.items():
+        lado = 1 if nome.endswith("L") else -1
+        _chave(p["pata_" + nome], f,
+               rot=_eixo((0, 1, 0), lado * 18) @ _eixo((1, 0, 0), 58 + 20 * math.sin(fase + desloc)))
+    # A cauda continua enrolada; so acompanha o gingado.
+    for i, seg in enumerate(("cauda_1", "cauda_2", "cauda_3")):
+        _chave(p[seg], f, rot=_eixo((0, 0, 1), 48 + 3 * math.sin(fase - i)))
+
+
 def exportar():
     os.makedirs(os.path.dirname(SAIDA), exist_ok=True)
     bpy.ops.export_scene.gltf(
@@ -425,6 +489,10 @@ def main():
     gravar("EmPe", 4.5, anim_em_pe, pecas)
     gravar("Deitada", 4.5, anim_deitada, pecas)
     gravar("Encolhida", 4.5, anim_encolhida, pecas)
+    # Os pares que caminham. Duracao curta, como o "Andar" normal: sao ciclos.
+    gravar("EmPeAndar", 0.7, anim_em_pe_andar, pecas)
+    gravar("DeitadaAndar", 0.62, anim_deitada_andar, pecas)
+    gravar("EncolhidaAndar", 0.55, anim_encolhida_andar, pecas)
 
     total = sum(1 for o in bpy.data.objects if o.type == "MESH")
     tris = sum(len(o.data.polygons) * 2 for o in bpy.data.objects if o.type == "MESH")

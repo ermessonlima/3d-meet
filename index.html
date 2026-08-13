@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
-    <title>POLYGON Office</title>
+    <title>Lagartixou</title>
   </head>
   <body>
     <canvas id="palco"></canvas>
@@ -32,97 +32,191 @@
       <span data-campo="tris">— tris</span>
     </div>
 
-    <!-- ------------------------------------------------ tela inicial -->
-
-    <div id="lobby" hidden>
-      <div class="folha">
-        <header class="marca">
-          <h1>Polygon Office</h1>
-          <p>Um escritório para percorrer com outras pessoas.</p>
-        </header>
-
-        <section class="bloco">
-          <label class="campo" for="lb-nome">
-            <span class="rotulo">Seu nome</span>
-            <input id="lb-nome" type="text" maxlength="20" placeholder="Como querem te chamar" />
-          </label>
-        </section>
-
-        <section class="bloco">
-          <h2 class="rotulo">O que você quer ser</h2>
-          <div id="lb-papeis" class="papeis"></div>
-        </section>
-
-        <section class="bloco" id="lb-bloco-personagem">
-          <h2 class="rotulo">Personagem</h2>
-          <div id="lb-personagens" class="cartas"></div>
-        </section>
-
-        <section class="bloco">
-          <h2 class="rotulo">Cor de destaque</h2>
-          <div id="lb-cores" class="cores"></div>
-        </section>
-
-        <div class="abas" role="tablist">
-          <button type="button" data-aba="criar" role="tab" aria-selected="true">
-            Criar sala
-          </button>
-          <button type="button" data-aba="entrar" role="tab" aria-selected="false">
-            Entrar numa sala
-          </button>
-        </div>
-
-        <div class="painel" data-painel="criar">
-          <label class="campo" for="lb-sala-nome">
-            <span class="rotulo">Nome da sala</span>
-            <input id="lb-sala-nome" type="text" maxlength="32" placeholder="Escritório" />
-          </label>
-          <label class="campo" for="lb-senha-criar">
-            <span class="rotulo">Senha</span>
-            <input id="lb-senha-criar" type="password" maxlength="64" autocomplete="new-password" />
-            <span class="ajuda">Deixe vazio para uma sala aberta.</span>
-          </label>
-          <button type="button" id="lb-criar" class="principal">
-            <i data-icone="entrar" data-tamanho="16"></i>
-            <span>Criar e entrar</span>
-          </button>
-        </div>
-
-        <div class="painel" data-painel="entrar" hidden>
-          <label class="campo" for="lb-codigo">
-            <span class="rotulo">Código da sala</span>
-            <input id="lb-codigo" class="codigo" type="text" maxlength="12" placeholder="A1B2C3" />
-          </label>
-          <label class="campo" for="lb-senha-entrar">
-            <span class="rotulo">Senha</span>
-            <input id="lb-senha-entrar" type="password" maxlength="64" autocomplete="current-password" />
-          </label>
-          <button type="button" id="lb-entrar" class="principal">
-            <i data-icone="entrar" data-tamanho="16"></i>
-            <span>Entrar</span>
-          </button>
-        </div>
-
-        <p id="lb-erro" role="alert" hidden></p>
+    <!-- ------------------------------------------------ capa -->
+    <!--
+      A capa entra antes do lobby porque o lobby é FORMULÁRIO: nome, papel,
+      cor, sala, senha. Cair direto num formulário não diz que jogo é este.
+      A imagem diz em um segundo -- um segurança de arma na mão e uma lagartixa
+      a dois metros dele, no escuro.
+    -->
+    <div id="capa">
+      <img src="/img/capa.webp" alt="" fetchpriority="high" />
+      <div class="conteudo">
+        <h1>Lagartixou</h1>
+        <p>Um caçador. Uma lagartixa. Cinco minutos para achá-la.</p>
+        <button type="button" id="btn-start">START</button>
       </div>
     </div>
 
-    <!-- -------------------------------------------------- painel da sala -->
+    <!-- ------------------------------------------------ tela inicial -->
 
-    <div id="painel-sala" hidden>
-      <div class="linha">
-        <span class="rotulo">Sala</span>
-        <strong id="sala-codigo"></strong>
-        <button type="button" id="copiar-convite" title="Copiar link de convite">
-          <i data-icone="copiar" data-tamanho="13"></i>
-          <span>Convite</span>
+    <div id="lobby" hidden>
+      <!--
+        Duas colunas: à esquerda o corpo escolhido AO VIVO, à direita o
+        formulário. O retrato estático dizia o que a pessoa ia vestir; o modelo
+        animado diz o que ela vai ser -- e trocar de papel deixa de ser marcar
+        uma opção e vira ver a lagartixa aparecer no lugar do segurança.
+      -->
+      <div class="palco">
+        <div class="grade"></div>
+        <canvas id="lb-palco"></canvas>
+        <div class="vinheta"></div>
+        <div class="varredura"></div>
+
+        <div class="marca">
+          <div class="estado"><span class="ponto"></span><span>escolha seu corpo</span></div>
+          <div class="titulo">
+            <div>LAGARTI</div>
+            <div class="vazado">XOU</div>
+          </div>
+        </div>
+
+        <div class="ficha">
+          <div class="etiqueta"><span class="traco"></span><span>jogador</span></div>
+          <div class="identidade">
+            <span id="lb-eco-nome">Sem nome</span>
+            <span class="chip">
+              <span class="bolha" id="lb-eco-cor"></span>
+              <span id="lb-eco-papel">Pessoa</span>
+            </span>
+          </div>
+          <div class="nota" id="lb-eco-nota"></div>
+        </div>
+
+        <div class="teclas">
+          <kbd>W A S D</kbd><span>andar</span>
+          <kbd>clique</kbd><span>atirar</span>
+          <kbd>C</kbd><span>esconder</span>
+          <kbd>Y</kbd><span>falar</span>
+        </div>
+      </div>
+
+      <div class="formulario">
+        <header>
+          <div>
+            <span class="sobre">preparar entrada</span>
+            <h1>Quem você vai ser</h1>
+          </div>
+        </header>
+
+        <div class="dupla">
+          <div class="secao">
+            <div class="cabeca"><span class="num">01</span><span>seu nome</span><span class="regua"></span></div>
+            <input id="lb-nome" type="text" maxlength="20" placeholder="Como querem te chamar" />
+          </div>
+          <div class="secao">
+            <div class="cabeca"><span class="num">02</span><span>cor</span></div>
+            <div id="lb-cores" class="cores"></div>
+          </div>
+        </div>
+
+        <div class="secao">
+          <div class="cabeca"><span class="num">03</span><span>o que você quer ser</span><span class="regua"></span></div>
+          <div id="lb-papeis" class="papeis"></div>
+        </div>
+
+        <div class="secao">
+          <div class="cabeca"><span class="num">04</span><span>corpo</span><span class="regua"></span></div>
+          <div id="lb-bloco-personagem">
+            <div id="lb-personagens" class="cartas"></div>
+          </div>
+          <div id="lb-sem-corpo" class="sem-corpo" hidden>
+            <span class="selo"></span>
+            <div>
+              <strong>A lagartixa tem corpo próprio</strong>
+              <span>Nenhum dos seis personagens se aplica. <kbd>C</kbd> esconde, <kbd>P</kbd> abre o ateliê.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="secao rodape">
+          <div class="abas" role="tablist">
+            <button type="button" data-aba="criar" role="tab" aria-selected="true">criar sala</button>
+            <button type="button" data-aba="entrar" role="tab" aria-selected="false">entrar numa sala</button>
+          </div>
+
+          <div class="painel" data-painel="criar">
+            <div class="dupla">
+              <label class="campo" for="lb-sala-nome">
+                <span class="rotulo">nome da sala</span>
+                <input id="lb-sala-nome" type="text" maxlength="32" placeholder="Escritório" />
+              </label>
+              <label class="campo estreito" for="lb-senha-criar">
+                <span class="rotulo">senha</span>
+                <input id="lb-senha-criar" type="password" maxlength="64" placeholder="opcional" autocomplete="new-password" />
+              </label>
+            </div>
+            <button type="button" id="lb-criar" class="principal">
+              <span class="seta"></span>
+              <span>Criar e entrar</span>
+              <span class="atalho">enter</span>
+            </button>
+          </div>
+
+          <div class="painel" data-painel="entrar" hidden>
+            <div class="dupla">
+              <label class="campo" for="lb-codigo">
+                <span class="rotulo">código da sala</span>
+                <input id="lb-codigo" class="codigo" type="text" maxlength="12" placeholder="A1B2C3" />
+              </label>
+              <label class="campo estreito" for="lb-senha-entrar">
+                <span class="rotulo">senha</span>
+                <input id="lb-senha-entrar" type="password" maxlength="64" placeholder="opcional" autocomplete="current-password" />
+              </label>
+            </div>
+            <button type="button" id="lb-entrar" class="principal">
+              <span class="seta"></span>
+              <span>Entrar</span>
+              <span class="atalho">enter</span>
+            </button>
+          </div>
+
+          <p id="lb-erro" role="alert" hidden></p>
+
+          <div class="assinatura">
+            <span>deixe a senha vazia para uma sala aberta</span>
+            <span>three.js · webrtc</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ------------------------------------------------ configurações -->
+    <!--
+      Tela limpa: durante a partida a interface some quase inteira. O código da
+      sala, a lista de quem está nela e a régua de comandos moram aqui dentro,
+      atrás do botão de engrenagem, em vez de ocuparem canto de tela o tempo
+      todo.
+    -->
+    <div id="config" hidden role="dialog" aria-label="Configurações">
+      <header>
+        <i data-icone="config" data-tamanho="16"></i>
+        <h2>Configurações</h2>
+        <button type="button" id="fechar-config" title="Fechar">
+          <i data-icone="fechar" data-tamanho="15"></i>
         </button>
-      </div>
-      <div class="linha contagem">
-        <i data-icone="pessoas" data-tamanho="13"></i>
-        <span id="sala-total">1</span>
-      </div>
-      <ul id="sala-jogadores"></ul>
+      </header>
+
+      <section id="painel-sala">
+        <div class="linha">
+          <span class="rotulo">Sala</span>
+          <strong id="sala-codigo"></strong>
+          <button type="button" id="copiar-convite" title="Copiar link de convite">
+            <i data-icone="copiar" data-tamanho="13"></i>
+            <span>Convite</span>
+          </button>
+        </div>
+        <div class="linha contagem">
+          <i data-icone="pessoas" data-tamanho="13"></i>
+          <span id="sala-total">1</span>
+        </div>
+        <ul id="sala-jogadores"></ul>
+      </section>
+
+      <label class="opcao">
+        <input type="checkbox" id="opt-comandos" />
+        <span>Mostrar comandos na tela</span>
+      </label>
     </div>
 
     <div id="controles" hidden>
@@ -164,18 +258,28 @@
       </form>
     </aside>
 
+    <!--
+      Microfone, câmera e tela estão OCULTOS, não removidos: a mídia inteira
+      (getUserMedia, malha WebRTC, tiles de vídeo, sinalização no servidor)
+      continua no lugar e funcionando. Basta tirar o `hidden` destes três
+      botões para tudo voltar.
+    -->
     <div id="barra-midia" hidden>
-      <button type="button" id="btn-microfone" aria-pressed="false" title="Microfone">
+      <button type="button" id="btn-microfone" aria-pressed="false" title="Microfone" hidden>
         <i class="icone" data-icone="mic-off" data-tamanho="17"></i>
         <span class="rotulo">Microfone</span>
       </button>
-      <button type="button" id="btn-camera" aria-pressed="false" title="Câmera">
+      <button type="button" id="btn-camera" aria-pressed="false" title="Câmera" hidden>
         <i class="icone" data-icone="camera-off" data-tamanho="17"></i>
         <span class="rotulo">Câmera</span>
       </button>
-      <button type="button" id="btn-tela" aria-pressed="false" title="Compartilhar tela">
+      <button type="button" id="btn-tela" aria-pressed="false" title="Compartilhar tela" hidden>
         <i class="icone" data-icone="compartilhar-tela" data-tamanho="17"></i>
         <span class="rotulo">Tela</span>
+      </button>
+      <button type="button" id="btn-config" aria-pressed="false" title="Configurações">
+        <i class="icone" data-icone="config" data-tamanho="17"></i>
+        <span class="rotulo">Sala</span>
       </button>
       <button type="button" id="alternar-chat" aria-pressed="false" title="Chat da sala">
         <i class="icone" data-icone="chat" data-tamanho="17"></i>
@@ -205,30 +309,147 @@
         <i data-icone="jogar" data-tamanho="14"></i>
         <span>Começar</span>
       </button>
+      <button type="button" id="pular-preparo" hidden title="Começar a caçada agora">
+        <i data-icone="jogar" data-tamanho="14"></i>
+        <span>Caçar agora</span>
+      </button>
+      <button type="button" id="reiniciar-rodada" hidden title="Voltar ao preparo com todos de pé">
+        <i data-icone="reiniciar" data-tamanho="14"></i>
+        <span>Reiniciar</span>
+      </button>
     </div>
 
+    <!-- Quem caiu na rodada. Fica na tela até a rodada seguinte. -->
+    <div id="caidas" hidden role="status">
+      <span class="rotulo">Encontradas</span>
+      <ul></ul>
+    </div>
+
+    <!-- Barra de espectador: só existe depois de ser eliminada. -->
+    <!--
+      Olhar de fora do corpo, ainda viva. Fica no rodapé, do lado oposto ao
+      botão de ações, e some inteiro para o caçador.
+    -->
+    <!-- Bateria da lanterna e conjuração do disjuntor: só de quem caça. -->
+    <div id="bateria" hidden>
+      <i data-icone="camera-livre" data-tamanho="13"></i>
+      <span class="trilho"><span class="nivel"></span></span>
+      <span class="numero">100%</span>
+    </div>
+
+    <div id="conjuracao" hidden>
+      <span class="rotulo">religando o disjuntor…</span>
+      <span class="trilho"><span class="nivel"></span></span>
+    </div>
+
+    <div id="olhar" hidden>
+      <div id="olhar-barra" hidden>
+        <span class="quem" id="olhar-quem"></span>
+        <button type="button" id="btn-voltar-corpo">voltar ao corpo</button>
+      </div>
+      <div class="controles">
+        <button type="button" id="btn-olhar" aria-pressed="false" title="Sair do corpo e olhar em volta (o corpo fica parado)">
+          <i data-icone="camera-livre" data-tamanho="15"></i>
+          <span>Olhar</span>
+        </button>
+        <button type="button" id="btn-olhar-livre" aria-pressed="false" title="Câmera livre, presa a 14 m do seu corpo">livre</button>
+        <button type="button" id="btn-amigas" title="Ver onde as outras lagartixas estão">amigas</button>
+      </div>
+      <div id="olhar-amigas"></div>
+    </div>
+
+    <div id="espectador" hidden>
+      <span class="aviso">Você foi encontrada — fora desta rodada</span>
+      <div class="modos">
+        <button type="button" id="ver-livre" aria-pressed="true">
+          <i data-icone="camera-livre" data-tamanho="15"></i>
+          <span>Câmera livre</span>
+        </button>
+        <button type="button" id="ver-cacador" aria-pressed="false">
+          <i data-icone="olho" data-tamanho="15"></i>
+          <span>Visão do caçador</span>
+        </button>
+      </div>
+      <span class="quem" hidden></span>
+      <p class="ajuda">
+        <kbd>W A S D</kbd> voar · <kbd>espaço</kbd>/<kbd>shift</kbd> subir e descer
+        · <kbd>ctrl</kbd> acelerar
+      </p>
+    </div>
+
+    <!-- Sujeira do cuspe, por cima de tudo. -->
+    <canvas id="cuspe-tela" hidden></canvas>
+
+    <!--
+      Barra de habilidades. Fica SEMPRE visível para a lagartixa, ao contrário
+      da pintura e das poses: truque é decisão de segundo, e um poder que só
+      existe depois de abrir um menu chega tarde.
+    -->
+    <p id="recado" hidden role="status"></p>
+
+    <!--
+      Só aparece quando o jogo detecta que o corpo está mesmo preso. Botão
+      sempre disponível viraria saída de emergência; aparecendo só no aperto,
+      ele é o que é -- conserto, não escapatória.
+    -->
+    <button type="button" id="destravar" hidden>
+      <span class="giro"></span>
+      <span>Destravar</span>
+      <kbd>K</kbd>
+    </button>
+
+    <div id="skills" hidden></div>
+
+    <!--
+      Poses na lateral direita, em coluna. Separadas das habilidades de
+      propósito: habilidade é um disparo com recarga, pose é um ESTADO que fica
+      ligado. Misturar as duas na mesma régua faria a pessoa procurar recarga
+      onde não existe.
+    -->
+    <div id="poses" hidden></div>
+
+    <!-- Enquadramento da câmera: normal, afastada, primeira pessoa. -->
+    <button type="button" id="btn-enquadramento" hidden>
+      <span class="olho"></span>
+      <span class="nome">Normal</span>
+      <kbd>O</kbd>
+      <span class="balao"><strong>Câmera</strong><span></span></span>
+    </button>
+
+    <!-- Botão da paleta, na esquerda: o modal que ele abre também abre ali. -->
+    <button type="button" id="btn-acoes" aria-pressed="false" hidden>
+      <span class="arte"></span>
+      <span class="nome">Paleta</span>
+    </button>
+
+    <!--
+      Paleta rápida, à esquerda, logo acima do botão que a abre. Serve para
+      trocar de cor sem parar o jogo; a pintura fina mora no ateliê.
+    -->
     <div id="paleta" hidden>
-      <span class="rotulo">Pintura</span>
+      <div class="cabeca"><span>paleta</span><span class="regua"></span></div>
+
       <div class="cores"></div>
-      <label class="livre" title="Escolher qualquer cor">
+
+      <label class="livre">
         <input type="color" id="cor-livre" value="#5f9e4a" />
-        <span>outra</span>
+        <span>qualquer outra</span>
       </label>
-      <button type="button" id="copiar-chao" title="Copiar a cor do chão">
-        <i data-icone="conta-gotas" data-tamanho="15"></i>
-        <span>Chão</span>
-        <kbd>X</kbd>
-      </button>
-      <button type="button" id="abrir-pintura" title="Pintar à mão">
-        <i data-icone="pincel" data-tamanho="15"></i>
-        <span>Pincel</span>
-        <kbd>P</kbd>
-      </button>
-      <span class="separa"></span>
-      <span class="rotulo">Pose</span>
-      <div class="poses"></div>
-      <span class="separa"></span>
-      <kbd>C</kbd><span class="dica-esconder">esconder</span>
+
+      <div class="atalhos">
+        <button type="button" id="copiar-chao">
+          <i data-icone="conta-gotas" data-tamanho="16"></i>
+          <span>Copiar o chão</span>
+          <kbd>X</kbd>
+          <span class="balao"><strong>Copiar o chão</strong><span>Pega a cor exata da superfície sob as suas patas.</span></span>
+        </button>
+        <button type="button" id="abrir-pintura">
+          <i data-icone="pincel" data-tamanho="16"></i>
+          <span>Pintar à mão</span>
+          <kbd>P</kbd>
+          <span class="balao"><strong>Ateliê</strong><span>Abre o pincel para desenhar no corpo, mancha por mancha.</span></span>
+        </button>
+      </div>
     </div>
 
     <!--
@@ -236,43 +457,57 @@
       separada porque a lagartixa precisa ser vista NO cenário -- a graça é
       comparar a pintura com a parede atrás dela enquanto se pinta.
     -->
+    <!--
+      Ateliê, na lateral esquerda -- espelho das poses, que ficam à direita.
+      Enquanto ele está aberto o corpo fica em close no meio da tela, então as
+      duas bordas são o único lugar que não tapa o que se está pintando.
+    -->
     <div id="atelie" hidden role="dialog" aria-label="Pintar a lagartixa">
       <header>
-        <i data-icone="pincel" data-tamanho="16"></i>
-        <h2>Ateliê</h2>
-        <button type="button" id="fechar-pintura" class="primario">Pronto</button>
+        <div>
+          <span class="sobre">ateliê</span>
+          <h2>Pintar à mão</h2>
+        </div>
+        <button type="button" id="fechar-pintura" title="Fechar">
+          <i data-icone="fechar" data-tamanho="15"></i>
+        </button>
       </header>
 
-      <div class="linha">
-        <span class="rotulo">Cor</span>
+      <section>
+        <div class="cabeca"><span>cor</span><span class="regua"></span></div>
         <div class="cores-atelie"></div>
-        <label class="livre" title="Escolher qualquer cor">
+        <label class="livre">
           <input type="color" id="cor-pincel" value="#5f9e4a" />
+          <span>qualquer outra</span>
         </label>
-      </div>
+      </section>
 
-      <div class="linha">
-        <span class="rotulo">Pincel</span>
-        <input type="range" id="tamanho-pincel" min="4" max="60" step="1" value="18"
-               aria-label="Tamanho do pincel" />
-        <span class="amostra-pincel"><i></i></span>
-      </div>
+      <section>
+        <div class="cabeca"><span>pincel</span><span class="regua"></span></div>
+        <div class="linha-pincel">
+          <input type="range" id="tamanho-pincel" min="4" max="60" step="1" value="18"
+                 aria-label="Tamanho do pincel" />
+          <span class="amostra-pincel"><i></i></span>
+        </div>
+      </section>
 
-      <div class="linha acoes">
-        <button type="button" id="conta-gotas" aria-pressed="false"
-                title="Clique em qualquer coisa do cenário para pegar a cor">
-          <i data-icone="conta-gotas" data-tamanho="15"></i>
-          <span>Conta-gotas</span>
-        </button>
-        <button type="button" id="preencher-tudo" title="Pintar o corpo inteiro desta cor">
-          <i data-icone="balde" data-tamanho="15"></i>
-          <span>Cobrir tudo</span>
-        </button>
-      </div>
+      <section>
+        <div class="cabeca"><span>ferramentas</span><span class="regua"></span></div>
+        <div class="ferramentas">
+          <button type="button" id="conta-gotas" aria-pressed="false"
+                  title="Clique em qualquer coisa do cenário para pegar a cor">
+            <i data-icone="conta-gotas" data-tamanho="18"></i>
+            <span>Conta-gotas</span>
+          </button>
+          <button type="button" id="preencher-tudo" title="Pintar o corpo inteiro desta cor">
+            <i data-icone="balde" data-tamanho="18"></i>
+            <span>Cobrir tudo</span>
+          </button>
+        </div>
+      </section>
 
       <p class="ajuda" id="ajuda-pintura">
-        Arraste com o <strong>botão esquerdo</strong> sobre o corpo para pintar.
-        Com o <strong>direito</strong>, gire em volta; a roda aproxima.
+        <kbd>esquerdo</kbd> pinta · <kbd>direito</kbd> gira · <kbd>roda</kbd> aproxima
       </p>
     </div>
 

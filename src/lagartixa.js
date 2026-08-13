@@ -27,6 +27,53 @@ import { TelaDePintura, isolarMateriais, garantirUV } from "./pinturaLagartixa.j
  * cor exata do carpete. Cada pose troca esse contorno por outro que combina
  * com um tipo de canto do escritório.
  */
+/**
+ * O quanto cada pose atrasa o passo.
+ *
+ * Manter a silhueta andando tem que custar alguma coisa, senão não haveria
+ * motivo para largá-la: rastejar deitada é mais lento do que correr solta, e
+ * andar enrolada, mais ainda. É o que mantém a escolha viva em vez de existir
+ * uma postura sempre melhor.
+ */
+export const VELOCIDADE_DA_POSE = {
+  EmPe: 0.62,
+  Deitada: 0.5,
+  Encolhida: 0.38,
+};
+
+/**
+ * Enquadramentos da câmera.
+ *
+ * Jogar rente ao chão num escritório cheio de móveis é difícil de enxergar: às
+ * vezes o que falta é distância, às vezes é estar DENTRO do bicho. Em vez de
+ * escolher um compromisso só, a pessoa escolhe.
+ */
+export const CAMERAS = [
+  {
+    id: "normal",
+    rotulo: "Normal",
+    dica: "Atrás e perto. O enquadramento padrão.",
+    distancia: 1.7,
+    alvo: 0.35,
+    ombro: { lado: 0, altura: 0 },
+  },
+  {
+    id: "afastada",
+    rotulo: "Afastada",
+    dica: "Mais longe e por cima do ombro: a lagartixa fica no canto e sobra cômodo à frente.",
+    distancia: 3.2,
+    alvo: 0.5,
+    ombro: { lado: 0.55, altura: 0.35 },
+  },
+  {
+    id: "primeira",
+    rotulo: "Primeira pessoa",
+    dica: "Pelos olhos dela, a 18 cm do chão. Enxerga pouco, mas enxerga o que ela enxerga.",
+    primeiraPessoa: true,
+    alturaDosOlhos: 0.18,
+  },
+];
+
 export const POSES = [
   {
     nome: "EmPe",
@@ -66,6 +113,13 @@ export const CORPO = {
   avancoPorCiclo: 0.42, // o clipe "Andar" dela cobre pouco chão por ciclo
   impulsoPulo: 4.2,
   alvoCamera: 0.35,     // a câmera mira o corpo, não a cabeça de uma pessoa
+  // Braço de câmera curto. Os 5 m que servem a uma pessoa de 1,8 m ao ar livre
+  // viram um problema num bicho de 26 cm dentro de um cômodo de 2,8 m de
+  // pé-direito e cheio de móveis: a 35 cm do chão, quase tudo fica entre a
+  // lente e o bicho. Medindo o mesmo percurso, a lente passa 79% do tempo
+  // obstruída a 2,2 m e 45% a 1,7 m. Subir o alvo não ajuda (volta a 77%):
+  // aproxima a lente das tampas de mesa e do teto.
+  distanciaCamera: 1.7,
 };
 
 const OPACIDADE_ESCONDIDA = 0.35;
@@ -105,6 +159,11 @@ export class PoderesDaLagartixa {
   pintar(cor) {
     this.cor = cor;
     this.tela.preencher(cor);
+  }
+
+  /** Multiplicador de velocidade da pose atual (1 quando não há pose). */
+  get fatorDaPose() {
+    return VELOCIDADE_DA_POSE[this.pose] ?? 1;
   }
 
   /** Uma pincelada no corpo, em coordenadas do mundo. */
@@ -149,9 +208,9 @@ export class PoderesDaLagartixa {
       entrada.frente || entrada.tras || entrada.esquerda || entrada.direita ||
       entrada.pular;
 
-    // Andar desfaz a pose. Não existe caminhar enrolada, e manter a postura
-    // enquanto o corpo desliza pelo chão ficaria absurdo.
-    if (this.pose && mexeu) this.posar(null);
+    // Andar NÃO desfaz mais a pose: cada uma tem o seu par que caminha, então
+    // a silhueta escolhida continua de pé enquanto o bicho se desloca. O preço
+    // é a velocidade, que cai conforme a postura (veja `fatorDaPose`).
 
     if (!this.escondida) return entrada;
     if (mexeu) this.esconder(false);

@@ -70,6 +70,13 @@ export class Lobby {
 
     this.elPapeis = this.el.querySelector("#lb-papeis");
     this.elBlocoPersonagem = this.el.querySelector("#lb-bloco-personagem");
+    this.elSemCorpo = this.el.querySelector("#lb-sem-corpo");
+    this.elEcoNome = this.el.querySelector("#lb-eco-nome");
+    this.elEcoCor = this.el.querySelector("#lb-eco-cor");
+    this.elEcoPapel = this.el.querySelector("#lb-eco-papel");
+    this.elEcoNota = this.el.querySelector("#lb-eco-nota");
+    /** Prévia 3D; preenchida por `montarPalco`, opcional se o WebGL falhar. */
+    this.cena = null;
 
     this._montarPapeis();
     this._montarPersonagens();
@@ -105,6 +112,8 @@ export class Lobby {
     });
 
     // Um código na URL (?sala=ABC123) pré-preenche o convite.
+    this.elNome.addEventListener("input", () => this._ecoar());
+
     const daUrl = new URLSearchParams(location.search).get("sala");
     if (daUrl) {
       this.elCodigo.value = daUrl.toUpperCase().slice(0, 12);
@@ -156,7 +165,47 @@ export class Lobby {
   }
 
   _aplicarPapel() {
-    this.elBlocoPersonagem.hidden = this.perfil.papel !== "pessoa";
+    const ehPessoa = this.perfil.papel === "pessoa";
+    this.elBlocoPersonagem.hidden = !ehPessoa;
+    // A lagartixa não usa nenhum dos seis corpos; no lugar da grade entra a
+    // explicação, senão a seção "corpo" ficaria vazia sem dizer por quê.
+    this.elSemCorpo.hidden = ehPessoa;
+    this.cena?.trocarPapel(this.perfil.papel);
+    this._ecoar();
+  }
+
+  /**
+   * Espelha as escolhas na coluna do personagem.
+   *
+   * O formulário fica à direita e o corpo à esquerda; sem o eco, quem olha o
+   * modelo não vê de quem ele é.
+   */
+  _ecoar() {
+    const papel = PAPEIS.find((p) => p.id === this.perfil.papel) ?? PAPEIS[0];
+    this.elEcoNome.textContent = this.elNome.value.trim() || "Sem nome";
+    this.elEcoPapel.textContent = papel.rotulo;
+    this.elEcoNota.textContent = papel.nota;
+    this.elEcoCor.style.background = this.perfil.cor;
+  }
+
+  /**
+   * Liga a prévia 3D.
+   *
+   * Falha em silêncio de propósito: sem WebGL, ou com o modelo faltando, o
+   * lobby continua sendo um formulário que funciona. Travar a entrada no jogo
+   * porque a vitrine não carregou seria trocar o essencial pelo enfeite.
+   */
+  async montarPalco() {
+    try {
+      const { montarLobbyCena } = await import("./lobbyCena.js");
+      this.cena = await montarLobbyCena(this.el.querySelector("#lb-palco"), {
+        personagem: this.perfil.personagem,
+        papel: this.perfil.papel,
+      });
+      this.cena.pintar(this.perfil.cor);
+    } catch (erro) {
+      console.warn("[lobby] prévia 3D indisponível:", erro);
+    }
   }
 
   _montarPersonagens() {
@@ -184,6 +233,7 @@ export class Lobby {
         for (const outro of this.elPersonagens.children) {
           outro.setAttribute("aria-pressed", String(outro.dataset.id === personagem.id));
         }
+        this.cena?.trocarPersonagem(personagem.id);
       });
       this.elPersonagens.append(botao);
     }
@@ -203,6 +253,10 @@ export class Lobby {
         for (const outro of this.elCores.children) {
           outro.setAttribute("aria-pressed", String(outro.dataset.cor === cor));
         }
+        // A cor de destaque é também a cor da lagartixa; pintar a prévia deixa
+        // isso óbvio sem precisar de legenda.
+        this.cena?.pintar(cor);
+        this._ecoar();
       });
       this.elCores.append(botao);
     }
@@ -247,9 +301,14 @@ export class Lobby {
   mostrar() {
     this.el.hidden = false;
     this.elNome.focus();
+    this._ecoar();
+    if (!this.cena) this.montarPalco();
   }
 
   esconder() {
     this.el.hidden = true;
+    // Dois renderizadores WebGL vivos é desperdício, e o do jogo é que importa.
+    this.cena?.encerrar();
+    this.cena = null;
   }
 }

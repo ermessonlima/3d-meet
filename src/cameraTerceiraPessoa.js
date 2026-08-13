@@ -2,6 +2,8 @@ import * as THREE from "three";
 
 const PITCH_MIN = -0.30;   // olhando de baixo para cima
 const PITCH_MAX = 1.15;    // quase de cima
+// Quanto a lente pode recuar por segundo ao encontrar obstáculo.
+const VEL_ENCOLHER = 18;
 const DIST_MIN = 1.4;
 const DIST_MAX = 8.0;
 
@@ -38,6 +40,8 @@ export class CameraTerceiraPessoa {
     this.camera = camera;
     this.dom = dom;
     this.colisor = colisor;
+    /** Colisores de teto; veja `construirCobertura` e `construirTampa`. */
+    this.coberturas = [];
 
     this.yaw = 0;
     this.pitch = 0.35;
@@ -53,6 +57,16 @@ export class CameraTerceiraPessoa {
      */
     this.pincelando = false;
     this.distanciaPintura = 0.62;
+    /** Altura dos olhos em primeira pessoa; sobrescrita por quem tem outro corpo. */
+    this.alturaDosOlhos = ALTURA_OLHOS;
+    /**
+     * Deslocamento lateral e vertical do alvo, em metros.
+     *
+     * É o que tira o personagem do centro exato da tela e o joga para um canto,
+     * deixando o cômodo à frente ocupar o resto -- o enquadramento "por cima do
+     * ombro".
+     */
+    this.ombro = { lado: 0, altura: 0 };
     /** Fica true depois de falhas seguidas ao capturar o ponteiro. */
     this.capturaIndisponivel = false;
     this._falhasDeCaptura = 0;
@@ -369,7 +383,9 @@ export class CameraTerceiraPessoa {
       -Math.cos(this.yaw) * cp,
     ).normalize();
 
-    this.camera.position.set(pes.x, pes.y + ALTURA_OLHOS, pes.z);
+    // A altura dos olhos vem de fora: 1,62 m é a de uma pessoa, e numa
+    // lagartixa de 26 cm a câmera ficaria cinco corpos acima da cabeça dela.
+    this.camera.position.set(pes.x, pes.y + (this.alturaDosOlhos ?? ALTURA_OLHOS), pes.z);
     this.camera.lookAt(
       this._origem.copy(this.camera.position).addScaledVector(this._dir, 10),
     );
@@ -382,7 +398,55 @@ export class CameraTerceiraPessoa {
   }
 
   /** Aponta a camera para `alvo` respeitando as paredes entre os dois. */
-  atualizar(dt, alvo) {
+  /**
+   * O menor valor que a sonda deu nos últimos quadros.
+   *
+   * Cinco raios contra geometria de escritório dão respostas instáveis: basta
+   * a quina de uma cadeira entrar e sair do caminho de UM deles para a
+   * distância permitida saltar de 2,2 m para 0,5 m e voltar, várias vezes por
+   * segundo. Encolher é instantâneo de propósito (senão a parede aparece na
+   * frente do personagem), então cada leitura solta virava um tranco.
+   *
+   * Guardando o mínimo de uma janela curta, um quadro "livre" isolado não
+   * estica a câmera de volta -- ela só volta a abrir quando o caminho fica
+   * livre de verdade, por alguns quadros seguidos. É conservador na direção
+   * certa: no pior caso a lente fica mais perto do que precisava.
+   */
+  _menorRecente(valor) {
+    this._janela ??= [];
+    this._janela.push(valor);
+    if (this._janela.length > 8) this._janela.shift();
+    let menor = Infinity;
+    for (const v of this._janela) menor = Math.min(menor, v);
+    return menor;
+  }
+
+  /**
+   * Alvo amortecido, usado no lugar do ponto cru do jogador.
+   *
+   * A cápsula treme no lugar por natureza: a gravidade a empurra contra o
+   * chão todo quadro e a colisão a devolve, o que dá um vaivém de milímetros.
+   * Isso passava despercebido até a sonda da câmera começar a raspar no teto
+   * -- aí um milímetro de origem decide se um dos cinco raios pega a quina ou
+   * não, e a distância permitida saltava de 4 m para 2,8 m e voltava, várias
+   * vezes por segundo. Amortecer a ORIGEM mata o salto na fonte, em vez de
+   * remendar o resultado.
+   */
+  _suavizarAlvo(dt, alvo) {
+    if (!this._alvoSuave) {
+      this._alvoSuave = alvo.clone();
+    } else {
+      const k = 1 - Math.exp(-22 * dt);
+      // Longe demais é troca de lugar (nascer, sentar, trocar de câmera), e aí
+      // seguir suavemente faria a lente atravessar meio escritório.
+      if (this._alvoSuave.distanceToSquared(alvo) > 4) this._alvoSuave.copy(alvo);
+      else this._alvoSuave.lerp(alvo, k);
+    }
+    return this._alvoSuave;
+  }
+
+  atualizar(dt, alvoCru) {
+    const alvo = this._suavizarAlvo(dt, alvoCru);
     const cp = Math.cos(this.pitch);
     this._dir.set(
       Math.sin(this.yaw) * cp,
@@ -390,19 +454,31 @@ export class CameraTerceiraPessoa {
       Math.cos(this.yaw) * cp,
     ).normalize();
 
-    const permitida = this._sondar(alvo, this.distancia);
+    const permitida = this._menorRecente(this._sondar(alvo, this.distancia));
 
-    // Encolher e urgente -- qualquer atraso deixa a parede aparecer entre a
-    // lente e o personagem. Esticar de volta pode ser suave, e o movimento
-    // fica bem menos nervoso ao passar por batentes de porta.
+    // Encolher é urgente, mas não instantâneo.
+    //
+    // Instantâneo, um obstáculo que entra no caminho tirava 1,7 m da lente num
+    // único quadro -- e é isso que se sente como tranco. Limitado a 18 m/s, o
+    // mesmo recuo leva uns 90 ms: rápido demais para a parede chegar a aparecer
+    // na frente do personagem, devagar o bastante para ler como movimento em
+    // vez de corte. Esticar de volta segue mais lento ainda, senão o vaivém ao
+    // passar por um batente de porta fica nervoso.
     if (permitida < this.distanciaAtual) {
-      this.distanciaAtual = permitida;
+      this.distanciaAtual = Math.max(permitida, this.distanciaAtual - VEL_ENCOLHER * dt);
     } else {
       const k = 1 - Math.exp(-4.5 * dt);
       this.distanciaAtual += (permitida - this.distanciaAtual) * k;
     }
 
     this.camera.position.copy(alvo).addScaledVector(this._dir, this.distanciaAtual);
+    if (this.ombro.lado || this.ombro.altura) {
+      // Move a LENTE, não o alvo: mover o alvo faria a câmera girar em volta de
+      // um ponto ao lado do bicho, e ele descreveria um arco ao virar.
+      this._direita.set(this._dir.z, 0, -this._dir.x).normalize();
+      this.camera.position.addScaledVector(this._direita, this.ombro.lado);
+      this.camera.position.y += this.ombro.altura;
+    }
     this.camera.lookAt(alvo);
   }
 
@@ -534,6 +610,13 @@ export class CameraTerceiraPessoa {
 
       const toque = this._raio.intersectObject(this.colisor, true)[0];
       if (toque) livre = Math.min(livre, toque.distance - MARGEM);
+      // O telhado mora num colisor à parte e precisa entrar aqui também: sem
+      // isto a lente sobe pela laje e a câmera olha o escritório de cima, que
+      // é exatamente o que fechar o telhado foi feito para impedir.
+      for (const extra of this.coberturas) {
+        const teto = this._raio.intersectObject(extra, true)[0];
+        if (teto) livre = Math.min(livre, teto.distance - MARGEM);
+      }
     }
 
     return Math.max(livre, DIST_MIN * 0.35);

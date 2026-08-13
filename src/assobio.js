@@ -106,6 +106,45 @@ export class Assobios {
     voz.play();
   }
 
+  /**
+   * Assobia num PONTO do mundo, sem avatar por trás.
+   *
+   * É o que faz o assobio falso e a cauda solta funcionarem: o som sai de um
+   * lugar onde não há ninguém. Um objeto vazio serve de suporte -- o
+   * `PositionalAudio` precisa estar na cena para o ouvinte calcular a direção.
+   */
+  tocarEm(cena, ponto, meu = false) {
+    this.liberar();
+    if (!this.faixa) return;
+
+    const suporte = new THREE.Object3D();
+    suporte.position.copy(ponto);
+    cena.add(suporte);
+
+    const voz = new THREE.PositionalAudio(this.ouvinte);
+    voz.setBuffer(this.faixa);
+    // Quem JOGOU a pedra sempre escuta a própria isca.
+    //
+    // Com a queda de sempre não escutava: a pedra vai a até 18 m, e a 15 m o
+    // volume já é meio por cento do original. O poder virava fé -- não dava
+    // para saber se saiu, nem onde caiu. Aqui a distância deixa de cortar o
+    // volume (o alcance da isca cabe inteiro dentro de `refDistance`), mas o
+    // som continua posicional: ele chega mais pelo lado para onde a pedra
+    // foi, então ainda dá para conferir se a isca caiu onde se queria.
+    voz.setRefDistance(meu ? 30 : 1.6);
+    if (meu) voz.setVolume(0.5);
+    voz.setRolloffFactor(2.2);
+    voz.setDistanceModel("exponential");
+    suporte.add(voz);
+    voz.play();
+    // Some sozinho quando termina; sem isto cada assobio falso deixaria um nó
+    // morto na cena para sempre.
+    voz.onEnded = () => {
+      voz.stop();
+      cena.remove(suporte);
+    };
+  }
+
   limpar() {
     for (const id of [...this.vozes.keys()]) this.remover(id);
   }

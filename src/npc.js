@@ -100,6 +100,23 @@ export function encontrarPontoParaNpc(colisor, origem, min = 4, max = 9) {
       raio.far = 3;
       if (raio.intersectObject(colisor, true)[0]) continue;
 
+      // Folga em volta, na altura do peito.
+      //
+      // Pé-direito e chão não bastam: dentro de um elevador ou encostado numa
+      // divisória os dois passam, e o corpo de 60 cm de largura nasce metade
+      // dentro da parede. Oito raios em leque cobrem o caso.
+      let apertado = false;
+      for (let k = 0; k < 8 && !apertado; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        raio.set(
+          new THREE.Vector3(x, chao.point.y + 1.0, z),
+          new THREE.Vector3(Math.cos(a), 0, Math.sin(a)),
+        );
+        raio.far = 0.75;
+        if (raio.intersectObject(colisor, true)[0]) apertado = true;
+      }
+      if (apertado) continue;
+
       // Linha de visao livre: sem isso o NPC pode cair do outro lado da parede.
       const olho = new THREE.Vector3(origem.x, origem.y + 1.2, origem.z);
       const ate = new THREE.Vector3(x, chao.point.y + 1.2, z).sub(olho);

@@ -69,6 +69,26 @@ EMISSIVOS = {
 LIXO_UNREAL = ("AbstractNavData", "AtmosphericFog", "PlayerStart", "SkySphere",
                "Demonstration_", "NavMesh", "LightmassImportance", "Brush")
 
+# Folhas de porta. Saem da cena inteira, e nao so da colisao.
+#
+# O pacote vem com todas as portas FECHADAS, e como elas colidem, boa parte do
+# escritorio fica inacessivel -- um mapa de esconde-esconde onde metade das
+# salas nao abre nao serve. Tirar so a colisao deixaria o jogador atravessando
+# uma porta visivelmente fechada, que e pior; sem a folha, o vao fica aberto e
+# o batente continua no lugar.
+#
+# Os prefixos pegam so a FOLHA: "SM_Bld_Wall_Baseboard_Door_01" e rodape de
+# batente e nao casa com nenhum deles, entao fica.
+PORTAS = ("SM_Bld_Door_", "SM_Bld_Glass_Door_", "SM_Bld_Elevator_01_Door")
+
+# A entrada do predio FICA fechada.
+#
+# As "Large" ficam na borda externa (y ~ -17.6/-18.0 no FBX, que vira z ~ 17.8
+# no glTF, junto ao limite do terreno) e sao a porta que da para a praca. O
+# escritorio e o mapa; deixar a saida aberta convida a partida a se espalhar
+# pelo estacionamento, onde nao ha nem teto nem esconderijo.
+PORTAS_QUE_FICAM = ("SM_Bld_Door_Large_01",)
+
 
 def log(msg):
     print("[fbx2glb] %s" % msg, flush=True)
@@ -125,7 +145,7 @@ def remover(obj):
 
 def limpar_objetos():
     """Tira colisao UCX, luzes, cameras e empties do Unreal."""
-    contagem = {"ucx": 0, "luz": 0, "camera": 0, "lixo": 0}
+    contagem = {"ucx": 0, "luz": 0, "camera": 0, "lixo": 0, "porta": 0}
 
     for obj in list(bpy.data.objects):
         nome = obj.name
@@ -142,6 +162,10 @@ def limpar_objetos():
         elif any(nome.startswith(p) for p in LIXO_UNREAL):
             remover(obj)
             contagem["lixo"] += 1
+        elif (any(nome.startswith(p) for p in PORTAS)
+              and not any(nome.startswith(q) for q in PORTAS_QUE_FICAM)):
+            remover(obj)
+            contagem["porta"] += 1
 
     # Empties que ficaram sem nenhum filho depois da poda acima.
     for obj in list(bpy.data.objects):
@@ -149,8 +173,9 @@ def limpar_objetos():
             remover(obj)
             contagem["lixo"] += 1
 
-    log("removidos: %d UCX, %d luzes, %d cameras, %d empties/atores"
-        % (contagem["ucx"], contagem["luz"], contagem["camera"], contagem["lixo"]))
+    log("removidos: %d UCX, %d luzes, %d cameras, %d empties/atores, %d portas"
+        % (contagem["ucx"], contagem["luz"], contagem["camera"], contagem["lixo"],
+           contagem["porta"]))
     log("restaram %d objetos (%d malhas)"
         % (len(bpy.data.objects),
            sum(1 for o in bpy.data.objects if o.type == "MESH")))

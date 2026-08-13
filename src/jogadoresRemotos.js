@@ -22,6 +22,13 @@ const CAMINHO = (dados) =>
 // mostrar 66 ms no passado e suave do que extrapolar e errar.
 const ATRASO_MS = 90;
 
+// Temporários da orientação de escalada, compartilhados por todos os avatares:
+// isto roda por jogador por quadro e não pode alocar.
+const _cima = new THREE.Vector3();
+const _frente = new THREE.Vector3();
+const _lado = new THREE.Vector3();
+const _base = new THREE.Matrix4();
+
 /** Um avatar de outro jogador. */
 class Remoto {
   constructor(dados, modelo, clipes) {
@@ -30,6 +37,9 @@ class Remoto {
     this.cor = dados.cor;
     this.papel = dados.papel ?? "pessoa";
     this.escondido = false;
+    this.eliminado = Boolean(dados.eliminado);
+    /** Inclinação da cabeça; só preenchida para quem assiste. */
+    this.pitch = 0;
 
     this.raiz = new THREE.Group();
     this.raiz.add(modelo);
@@ -72,6 +82,28 @@ class Remoto {
       this.papel === "lagartixa" ? null : new Balao(this.raiz, 2.42);
   }
 
+  /**
+   * Aponta o corpo. Sem `cima` é o giro de sempre; com ele, a lagartixa está
+   * grudada em alguma superfície e precisa da base completa.
+   */
+  _orientar(cima, frente, yaw) {
+    if (!cima || !frente) {
+      this.raiz.rotation.y = yaw;
+      return;
+    }
+    _cima.fromArray(cima).normalize();
+    _frente.fromArray(frente);
+    _frente.addScaledVector(_cima, -_frente.dot(_cima));
+    if (_frente.lengthSq() < 1e-8) {
+      this.raiz.rotation.y = yaw;
+      return;
+    }
+    _frente.normalize();
+    _lado.crossVectors(_cima, _frente).normalize();
+    _base.makeBasis(_lado, _cima, _frente);
+    this.raiz.quaternion.setFromRotationMatrix(_base);
+  }
+
   _trocarAnim(nome) {
     const proxima = this.acoes[nome];
     if (!proxima || this.animAtual === proxima) return;
@@ -91,6 +123,11 @@ class Remoto {
       t: agora,
       p: new THREE.Vector3(estado.p[0], estado.p[1], estado.p[2]),
       yaw: estado.y,
+      // Só chega para quem está eliminado, e serve à câmera de espectador.
+      pitch: estado.t ?? 0,
+      // Orientação de escalada; ausente quando o bicho anda no chão.
+      cima: estado.c ?? null,
+      frente: estado.f ?? null,
       anim: estado.a,
     });
     // Dois estados bastam para interpolar; guardamos alguns a mais como folga
@@ -135,7 +172,8 @@ class Remoto {
       // na origem do mundo, com a animação inicial.
       const ultimo = b[b.length - 1];
       this.raiz.position.copy(ultimo.p);
-      this.raiz.rotation.y = ultimo.yaw;
+      this._orientar(ultimo.cima, ultimo.frente, ultimo.yaw);
+      this.pitch = ultimo.pitch;
       this._trocarAnim(ultimo.anim);
     } else {
       const a = b[i - 1];
@@ -143,7 +181,12 @@ class Remoto {
       const span = c.t - a.t;
       const k = span > 0 ? Math.min(1, Math.max(0, (alvo - a.t) / span)) : 1;
       this.raiz.position.lerpVectors(a.p, c.p, k);
-      this.raiz.rotation.y = anguloInterpolado(a.yaw, c.yaw, k);
+      // A orientação de escalada não se interpola bem como ângulo; usa a
+      // amostra mais nova, que a 15 Hz já é suave o bastante para um bicho
+      // deste tamanho.
+      if (c.cima) this._orientar(c.cima, c.frente, c.yaw);
+      else this.raiz.rotation.y = anguloInterpolado(a.yaw, c.yaw, k);
+      this.pitch = a.pitch + (c.pitch - a.pitch) * k;
       this._trocarAnim(c.anim);
     }
 

@@ -8,10 +8,12 @@ import { MeshBVH, acceleratedRaycast } from "three-mesh-bvh";
 // dispara varios raios por frame.
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-// Grupos que NAO entram na colisao. O telhado e o forro sao removiveis pelo
-// botao "Ver interior"; se colidissem, o jogador bateria num teto invisivel
-// justamente no modo em que ele foi escondido.
+// Telhado e forro ficam FORA do colisor principal e ganham o seu proprio
+// (veja `construirCobertura`): quem procura chao lancando raio de cima para
+// baixo -- a grade de navegacao e o sorteio de nascimento -- acharia a laje
+// antes do piso.
 const SEM_COLISAO = ["Roof", "Ceiling"];
+const COBERTURA = ["Roof", "Ceiling"];
 
 /**
  * Funde o cenario numa unica geometria e monta a BVH usada pela fisica.
@@ -22,12 +24,87 @@ const SEM_COLISAO = ["Roof", "Ceiling"];
  * malha nem desenhar caixas de colisao a mao.
  */
 export function construirColisor(cenario) {
+  return _fundir(cenario, (no) => !SEM_COLISAO.some((g) => no.name.startsWith(g)), "colisor");
+}
+
+/**
+ * Colisor SÓ do telhado e do forro, separado do resto.
+ *
+ * Separado, e não fundido no colisor principal, porque a grade de navegação e
+ * o sorteio do ponto de nascimento acham o chão lançando raios de CIMA para
+ * baixo. Com o telhado no mesmo colisor, o primeiro toque de cada raio passa a
+ * ser a laje -- e o jogo nasceria com todo mundo em pé sobre o telhado, com a
+ * malha de caminhada desenhada por cima dele.
+ *
+ * São ~32 mil triângulos contra os ~360 mil do cenário, então a segunda BVH
+ * sai barata, e a cápsula consulta as duas.
+ */
+export function construirCobertura(cenario) {
+  const tem = [];
+  cenario.traverse((no) => {
+    if (no.isMesh && COBERTURA.some((g) => no.name.startsWith(g))) tem.push(no);
+  });
+  if (!tem.length) return null;
+  return _fundir(cenario, (no) => COBERTURA.some((g) => no.name.startsWith(g)), "cobertura");
+}
+
+/**
+ * Tampa gerada para os buracos do forro.
+ *
+ * A geometria de teto do pacote cobre só ~3/4 do piso do escritório: sobram
+ * vãos, poços de escada e recortes por onde ainda dá para subir. Em vez de
+ * modelar teto novo, esta função estende uma laje invisível sobre TODA coluna
+ * onde a grade achou piso de escritório -- e só sobre elas, para não fechar o
+ * céu da praça lá fora.
+ *
+ * A altura fica ENTRE o forro e o topo das paredes: abaixo do topo, senão não
+ * serviria para nada; acima do forro, para não aparecer na frente dele.
+ *
+ * Um quadrado por coluna soa caro, mas são triângulos degenerados de dois em
+ * dois num grid grosseiro -- e a BVH não se importa com quantidade, se importa
+ * com espalhamento.
+ */
+export function construirTampa(grade, { altura, pisoMinimo = 3 } = {}) {
+  const posicoes = [];
+  const meio = grade.celula / 2;
+
+  for (const [indice, alturas] of grade.niveis) {
+    if (!alturas.some((y) => y >= pisoMinimo)) continue;
+    // A grade indexa como `ix * nz + iz`; inverter isso espalharia a tampa
+    // pelo lugar errado do mapa.
+    const ix = Math.floor(indice / grade.nz);
+    const iz = indice % grade.nz;
+    const [x, z] = grade.paraMundo(ix, iz);
+    const x0 = x - meio, x1 = x + meio;
+    const z0 = z - meio, z1 = z + meio;
+    // Dois triângulos virados para baixo; a cápsula é empurrada dos dois lados
+    // de qualquer jeito, então a orientação só importa para depuração.
+    posicoes.push(
+      x0, altura, z0, x1, altura, z0, x1, altura, z1,
+      x0, altura, z0, x1, altura, z1, x0, altura, z1,
+    );
+  }
+
+  if (!posicoes.length) return null;
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(posicoes), 3));
+  geo.boundsTree = new MeshBVH(geo);
+
+  const malha = new THREE.Mesh(geo);
+  malha.name = "tampa";
+  malha.visible = false;
+  malha.matrixAutoUpdate = false;
+  return malha;
+}
+
+function _fundir(cenario, aceitar, nome) {
   const geometrias = [];
 
   cenario.updateMatrixWorld(true);
   cenario.traverse((no) => {
     if (!no.isMesh) return;
-    if (SEM_COLISAO.some((g) => no.name.startsWith(g))) return;
+    if (!aceitar(no)) return;
 
     // So a posicao interessa: normal/uv sao peso morto na BVH, e atributos
     // diferentes entre malhas fariam o mergeGeometries falhar.
@@ -47,7 +124,7 @@ export function construirColisor(cenario) {
   fundida.boundsTree = new MeshBVH(fundida);
 
   const malha = new THREE.Mesh(fundida);
-  malha.name = "colisor";
+  malha.name = nome;
   malha.visible = false;
   malha.matrixAutoUpdate = false;
 

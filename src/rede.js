@@ -42,7 +42,29 @@ export class Rede {
     this.aoTextura = () => {};
     this.aoFase = () => {};
     this.aoSala = () => {};
+    this.aoEliminado = () => {};
+    this.aoReposicionar = () => {};
+    this.aoRecado = () => {};
+    this.aoCauda = () => {};
+    this.aoCuspe = () => {};
+    this.aoCuspeVisto = () => {};
+    this.aoEscuro = () => {};
     this.aoAssobio = () => {};
+    // Poderes de quem caça. Vazios por padrão como todos os outros: quem joga
+    // de lagartixa nunca chega a atribuir metade deles.
+    this.aoBatida = () => {};
+    this.aoBatidaSentida = () => {};
+    this.aoSensor = () => {};
+    this.aoSensorFora = () => {};
+    this.aoSensorApitou = () => {};
+    this.aoRede = () => {};
+    this.aoPo = () => {};
+    this.aoMarcas = () => {};
+    this.aoPingando = () => {};
+    this.aoDisjuntor = () => {};
+    this.aoDisjuntorPronto = () => {};
+    this.aoDisjuntorCancelado = () => {};
+    this.aoLimparCampo = () => {};
     this.aoDesconectar = () => {};
   }
 
@@ -98,10 +120,31 @@ export class Rede {
           case "textura": this.aoTextura(msg.id, msg.dados); break;
           case "fase": this.aoFase(msg); break;
           case "sala": this.aoSala(msg); break;
-          case "assobio": this.aoAssobio(msg.id); break;
+          case "eliminado": this.aoEliminado(msg); break;
+          case "reposicionar": this.aoReposicionar(msg); break;
+          case "recado": this.aoRecado(msg.texto); break;
+          case "assobio": this.aoAssobio(msg); break;
+          case "cauda": this.aoCauda(msg); break;
+          case "cuspe": this.aoCuspe(msg); break;
+          case "cuspe-visto": this.aoCuspeVisto(msg); break;
+          case "escuro": this.aoEscuro(msg); break;
           case "dano": this.aoDano(msg); break;
           case "reviver": this.aoReviver(msg); break;
           case "disparo": this.aoDisparo(msg); break;
+          // ---- poderes de quem caça
+          case "batida": this.aoBatida(msg); break;
+          case "batida-sentida": this.aoBatidaSentida(msg); break;
+          case "sensor": this.aoSensor(msg); break;
+          case "sensor-fora": this.aoSensorFora(msg); break;
+          case "sensor-apitou": this.aoSensorApitou(msg); break;
+          case "rede": this.aoRede(msg); break;
+          case "po": this.aoPo(msg); break;
+          case "marcas": this.aoMarcas(msg); break;
+          case "pingando": this.aoPingando(msg); break;
+          case "disjuntor": this.aoDisjuntor(msg); break;
+          case "disjuntor-pronto": this.aoDisjuntorPronto(msg); break;
+          case "disjuntor-cancelado": this.aoDisjuntorCancelado(msg); break;
+          case "limpar-campo": this.aoLimparCampo(msg); break;
         }
       });
 
@@ -128,7 +171,7 @@ export class Rede {
    * Só envia quando algo mudou de verdade: parado em pé, um jogador não gasta
    * banda nenhuma, e o servidor mantém o último estado conhecido.
    */
-  enviarEstado(posicao, yaw, anim, escondido = false) {
+  enviarEstado(posicao, yaw, anim, escondido = false, pitch = 0, cima = null, frente = null) {
     if (!this.conectado || this.ws.readyState !== WebSocket.OPEN) return;
 
     const agora = performance.now();
@@ -141,6 +184,9 @@ export class Rede {
       Math.round(yaw * 100) / 100,
       anim,
       escondido,
+      Math.round(pitch * 100) / 100,
+      cima ? `${cima.x.toFixed(2)},${cima.y.toFixed(2)},${cima.z.toFixed(2)}` : "",
+      frente ? `${frente.x.toFixed(2)},${frente.y.toFixed(2)},${frente.z.toFixed(2)}` : "",
     ];
     if (this._ultimoEstado && novo.every((v, i) => v === this._ultimoEstado[i])) {
       return;
@@ -151,6 +197,13 @@ export class Rede {
     this.ws.send(
       JSON.stringify({
         tipo: "estado", p: novo.slice(0, 3), y: novo[3], a: anim, e: escondido,
+        t: novo[6],
+        // Só sobem se houver escalada em curso; o campo vazio economiza o
+        // pacote de quem anda no chão, que é a maioria do tempo.
+        ...(cima && cima.y < 0.999
+          ? { c: [+cima.x.toFixed(2), +cima.y.toFixed(2), +cima.z.toFixed(2)],
+              f: [+frente.x.toFixed(2), +frente.y.toFixed(2), +frente.z.toFixed(2)] }
+          : {}),
       }),
     );
   }
@@ -172,8 +225,33 @@ export class Rede {
     this.ws.send(JSON.stringify({ tipo: "midia", ...estado }));
   }
 
+  /**
+   * Pede um poder ao servidor.
+   *
+   * Pedido, não fato: quem decide se vale (papel, fase, espera, alcance) e
+   * quanto custa em assobio é o servidor.
+   */
+  /** Pede para voltar à posição de alguns segundos atrás. */
+  destravar(motivo) {
+    if (this.conectado) this.ws.send(JSON.stringify({ tipo: "destravar", motivo }));
+  }
+
+  usarPoder(qual, extras = {}) {
+    if (this.conectado) this.ws.send(JSON.stringify({ tipo: "poder", qual, ...extras }));
+  }
+
   iniciarRodada() {
     if (this.conectado) this.ws.send(JSON.stringify({ tipo: "iniciar" }));
+  }
+
+  /** Corta o preparo e começa a caçada agora. */
+  pularPreparo() {
+    if (this.conectado) this.ws.send(JSON.stringify({ tipo: "pular" }));
+  }
+
+  /** Recomeça a rodada do preparo, com todo mundo de pé e no nascimento. */
+  reiniciarRodada() {
+    if (this.conectado) this.ws.send(JSON.stringify({ tipo: "reiniciar" }));
   }
 
   pintar(cor) {
