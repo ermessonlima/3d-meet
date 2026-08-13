@@ -1379,10 +1379,14 @@ body.chat-aberto {
 
 #paleta {
   position: fixed;
-  bottom: 16px;
+  bottom: 74px;
   left: 16px;
   display: flex;
   align-items: center;
+  /* Com pintura E poses a barra não cabe numa linha em tela estreita; sem a
+     quebra ela avançaria por baixo da barra de mídia. */
+  flex-wrap: wrap;
+  max-width: calc(100vw - var(--painel-direito, 0px) - 32px);
   gap: 10px;
   padding: 9px 13px;
   border-radius: var(--raio-p);
@@ -1396,18 +1400,42 @@ body.chat-aberto {
 
 #paleta .cores {
   display: flex;
-  gap: 6px;
+  gap: 7px;
 }
 
+/*
+ * 30px, não 20. Alvos de 20px numa barra encostada na borda inferior da tela
+ * são difíceis de acertar no meio de uma partida -- a cor certa importa pouco
+ * se escolher a cor custa tirar a atenção do jogo.
+ */
 #paleta .tinta {
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
   background: var(--c);
   border: 2px solid transparent;
   box-shadow: 0 0 0 1px var(--borda);
   cursor: pointer;
   padding: 0;
+  position: relative;
+  transition: transform 0.1s ease;
+}
+
+#paleta .tinta:hover {
+  transform: translateY(-2px);
+}
+
+/* O número do atalho, discreto sobre a própria cor. */
+#paleta .tinta::after {
+  content: attr(data-atalho);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.55);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
 #paleta .tinta[aria-pressed="true"] {
@@ -1415,8 +1443,380 @@ body.chat-aberto {
   box-shadow: 0 0 0 2px var(--txt-1);
 }
 
+/* Seletor livre: qualquer cor, não só as seis prontas. */
+#paleta .livre {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+
+#paleta .livre input[type="color"] {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 7px;
+  box-shadow: 0 0 0 1px var(--borda);
+  background: none;
+  cursor: pointer;
+}
+
+/* Sem isto o Chrome desenha uma moldura cinza grossa em volta da amostra. */
+#paleta .livre input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+#paleta .livre input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 5px;
+}
+
+#paleta .livre span {
+  font-size: 0.58rem;
+  color: var(--txt-3);
+}
+
+#paleta #copiar-chao {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--borda);
+  background: var(--sup-2);
+  color: var(--txt-2);
+  font: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+#paleta #copiar-chao:hover {
+  background: var(--sup-3);
+  color: var(--txt-1);
+}
+
+#paleta #copiar-chao kbd {
+  font-size: 0.58rem;
+}
+
+#paleta .separa {
+  width: 1px;
+  height: 20px;
+  background: var(--borda);
+}
+
 #paleta .dica-esconder {
   color: var(--txt-3);
+}
+
+#paleta .poses {
+  display: flex;
+  gap: 4px;
+}
+
+#paleta .pose {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 7px;
+  border: 1px solid var(--borda);
+  background: var(--sup-2);
+  color: var(--txt-3);
+  cursor: pointer;
+}
+
+#paleta .pose:hover {
+  background: var(--sup-3);
+  color: var(--txt-1);
+}
+
+#paleta .pose[aria-pressed="true"] {
+  border-color: var(--acento);
+  background: color-mix(in srgb, var(--acento) 26%, transparent);
+  color: var(--txt-1);
+}
+
+#paleta #abrir-pintura {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--acento);
+  background: color-mix(in srgb, var(--acento) 18%, transparent);
+  color: var(--txt-1);
+  font: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+#paleta #abrir-pintura:hover {
+  background: color-mix(in srgb, var(--acento) 32%, transparent);
+}
+
+/* ===================================================== rodada */
+
+#rodada[hidden] {
+  display: none;
+}
+
+#rodada {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(11, 14, 20, 0.78);
+  backdrop-filter: var(--vidro);
+  border: 1px solid var(--borda);
+  font-size: 0.74rem;
+  color: var(--txt-2);
+  z-index: 8;
+}
+
+#rodada #iniciar-rodada {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -3px -8px -3px 0;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: none;
+  background: var(--acento);
+  color: #06111f;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#rodada #iniciar-rodada[hidden] {
+  display: none;
+}
+
+#rodada #iniciar-rodada:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+#rodada #iniciar-rodada:disabled {
+  background: var(--sup-3);
+  color: var(--txt-3);
+  cursor: not-allowed;
+}
+
+/* Na espera não há contagem, então o relógio sai do caminho do botão. */
+#rodada[data-fase="espera"] .relogio {
+  display: none;
+}
+
+#rodada .relogio {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--txt-1);
+}
+
+/* No preparo o relógio é do lado da lagartixa; na caçada, de quem procura. */
+#rodada[data-fase="preparo"] {
+  border-color: color-mix(in srgb, var(--sucesso) 55%, transparent);
+}
+
+#rodada[data-fase="caca"] {
+  border-color: color-mix(in srgb, var(--acento) 55%, transparent);
+}
+
+/* Últimos 10 segundos: pulsa, para ninguém ser pego de surpresa. */
+#rodada.urgente .relogio {
+  color: var(--perigo, #ff6b6b);
+  animation: pulsar-relogio 1s ease-in-out infinite;
+}
+
+@keyframes pulsar-relogio {
+  50% { opacity: 0.35; }
+}
+
+/* ===================================================== ateliê de pintura */
+
+#atelie[hidden] {
+  display: none;
+}
+
+#atelie {
+  position: fixed;
+  top: 50%;
+  left: 16px;
+  transform: translateY(-50%);
+  width: 268px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--raio-g, 12px);
+  background: rgba(11, 14, 20, 0.86);
+  backdrop-filter: var(--vidro);
+  border: 1px solid var(--borda);
+  color: var(--txt-2);
+  font-size: 0.72rem;
+  z-index: 12;
+}
+
+#atelie header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#atelie header h2 {
+  margin: 0;
+  flex: 1;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--txt-1);
+}
+
+#atelie header button {
+  padding: 6px 14px;
+  border-radius: 7px;
+  border: none;
+  background: var(--acento);
+  color: #06111f;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#atelie .linha {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+#atelie .rotulo {
+  width: 44px;
+  flex: none;
+  color: var(--txt-3);
+}
+
+#atelie .cores-atelie {
+  display: flex;
+  gap: 5px;
+  flex: 1;
+}
+
+#atelie .tinta {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--c);
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 1px var(--borda);
+  cursor: pointer;
+  padding: 0;
+}
+
+#atelie .tinta[aria-pressed="true"] {
+  border-color: var(--sup-0);
+  box-shadow: 0 0 0 2px var(--txt-1);
+}
+
+#atelie .livre input[type="color"] {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--borda);
+  background: none;
+  cursor: pointer;
+}
+
+#atelie .livre input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+#atelie .livre input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 5px;
+}
+
+#atelie input[type="range"] {
+  flex: 1;
+  accent-color: var(--acento);
+  cursor: pointer;
+}
+
+/*
+ * O disco cresce junto com o valor do controle: um número em pixels não diz
+ * nada sobre o tamanho que o traço vai ter no bicho.
+ */
+#atelie .amostra-pincel {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--sup-2);
+  box-shadow: inset 0 0 0 1px var(--borda);
+}
+
+#atelie .amostra-pincel i {
+  display: block;
+  border-radius: 50%;
+  background: var(--cor-pincel, #5f9e4a);
+  width: var(--tam-pincel, 12px);
+  height: var(--tam-pincel, 12px);
+}
+
+#atelie .acoes {
+  gap: 7px;
+}
+
+#atelie .acoes button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--borda);
+  background: var(--sup-2);
+  color: var(--txt-2);
+  font: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+#atelie .acoes button:hover {
+  background: var(--sup-3);
+  color: var(--txt-1);
+}
+
+#atelie .acoes button[aria-pressed="true"] {
+  border-color: var(--acento);
+  background: color-mix(in srgb, var(--acento) 26%, transparent);
+  color: var(--txt-1);
+}
+
+#atelie .ajuda {
+  margin: 0;
+  color: var(--txt-3);
+  line-height: 1.45;
+}
+
+/* Enquanto o conta-gotas está armado, o cursor vira alvo em toda a tela. */
+body.pegando-cor canvas {
+  cursor: crosshair;
 }
 
 #abatido {
@@ -1456,4 +1856,36 @@ body.levou-tiro::after {
   background: rgba(255, 60, 60, 0.22);
   pointer-events: none;
   z-index: 11;
+}
+
+/* Aviso de captura do ponteiro, em primeira pessoa. */
+#aviso-ponteiro {
+  position: fixed;
+  bottom: 92px;
+  left: calc((100vw - var(--painel-direito)) / 2);
+  transform: translateX(-50%);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--raio-p);
+  background: rgba(11, 14, 20, 0.82);
+  backdrop-filter: var(--vidro);
+  border: 1px solid var(--borda);
+  font-size: 0.76rem;
+  color: var(--txt-2);
+  pointer-events: none;
+  z-index: 6;
+}
+
+#aviso-ponteiro[hidden] {
+  display: none;
+}
+
+#aviso-ponteiro kbd {
+  margin-left: 0;
+  color: var(--acento);
+  border-color: rgba(91, 157, 255, 0.4);
+  background: var(--acento-suave);
 }

@@ -17,6 +17,11 @@ const RAIO_SONDA = 0.3;
 // natural da mão sem engolir arrastos curtos de câmera.
 const ARRASTO_MIN = 5;
 
+// Altura dos olhos num personagem de 1,79 m.
+const ALTURA_OLHOS = 1.62;
+
+const FOV_NORMAL = 50;
+
 // Soltar o botão direito antes disto, sem ter arrastado, conta como toque.
 const TOQUE_MS = 260;
 
@@ -40,9 +45,30 @@ export class CameraTerceiraPessoa {
     this.distanciaAtual = 5.0; // o que a colisao permite agora
 
     this.ativa = false;
+    /** Em primeira pessoa o esquerdo é só gatilho; quem olha é o ponteiro. */
+    this.primeiraPessoa = false;
+    /**
+     * No ateliê o esquerdo é pincel, não câmera: girar a cena no meio de um
+     * traço tiraria a tinta do lugar onde a pessoa estava mirando.
+     */
+    this.pincelando = false;
+    this.distanciaPintura = 0.62;
+    /** Fica true depois de falhas seguidas ao capturar o ponteiro. */
+    this.capturaIndisponivel = false;
+    this._falhasDeCaptura = 0;
+    this._tentativaPendente = false;
+    /** Dentro de iframe a captura é bloqueada sem allow="pointer-lock". */
+    this.emIframe = (() => {
+      try { return window.self !== window.top; } catch { return true; }
+    })();
     this._esquerdoPreso = false;
     this._direitoPreso = false;
-    this._moveu = false;
+    // Uma flag de "arrastou" POR BOTÃO. Compartilhar uma só entre os dois foi
+    // um bug real: segurando o direito para olhar, o movimento marcava
+    // "arrastou", e o clique esquerdo era descartado como arrasto -- não dava
+    // para atirar enquanto se virava a câmera.
+    this._moveuEsquerdo = false;
+    this._moveuDireito = false;
     this._inicioX = 0;
     this._inicioY = 0;
     this._direitoDesde = 0;
@@ -67,6 +93,8 @@ export class CameraTerceiraPessoa {
     this._aoSubir = this._aoSubir.bind(this);
     this._aoRolar = this._aoRolar.bind(this);
     this._semMenu = (e) => e.preventDefault();
+    this._aoErroDeCaptura = () => this._falhouCaptura();
+    this._aoMudarCaptura = this._aoMudarCaptura.bind(this);
   }
 
   ativar() {
@@ -77,21 +105,30 @@ export class CameraTerceiraPessoa {
     this.dom.addEventListener("wheel", this._aoRolar, { passive: false });
     // Sem isto o botão direito abre o menu do navegador no meio do tiroteio.
     this.dom.addEventListener("contextmenu", this._semMenu);
+    document.addEventListener("pointerlockerror", this._aoErroDeCaptura);
+    document.addEventListener("pointerlockchange", this._aoMudarCaptura);
   }
 
   desativar() {
     this.ativa = false;
     this._esquerdoPreso = false;
     this._direitoPreso = false;
-    this._moveu = false;
-    // `aoClicar` NÃO é zerado aqui: quem registrou o callback foi o main, uma
-    // vez só. Limpá-lo faria o clique parar de funcionar ao sair e voltar do
-    // modo andar.
+    this._moveuEsquerdo = false;
+    this._moveuDireito = false;
+    // NÃO se zera aqui: `aoClicar` (registrado uma vez pelo main),
+    // `primeiraPessoa` (decidido pelo papel escolhido no lobby) nem
+    // `capturaIndisponivel` (fato sobre o navegador). Zerar qualquer um deles
+    // quebra a volta da órbita para o modo andar -- o clique pararia de
+    // funcionar, ou o FPS viraria terceira pessoa.
     this.dom.removeEventListener("pointerdown", this._aoDescer);
     removeEventListener("pointerup", this._aoSubir);
     removeEventListener("pointermove", this._aoMover);
     this.dom.removeEventListener("wheel", this._aoRolar);
     this.dom.removeEventListener("contextmenu", this._semMenu);
+    document.removeEventListener("pointerlockerror", this._aoErroDeCaptura);
+    document.removeEventListener("pointerlockchange", this._aoMudarCaptura);
+    clearTimeout(this._conferirCaptura);
+    if (this.travada) document.exitPointerLock();
   }
 
   /**
@@ -121,16 +158,107 @@ export class CameraTerceiraPessoa {
    *   direito pressionado .... aoMirar(true) -- e girar continua funcionando
    *   direito solto rápido ... aoTocarDireito (mirar e atirar num gesto só)
    */
+  get travada() {
+    return document.pointerLockElement === this.dom;
+  }
+
+  /**
+   * Pede a captura do ponteiro (mouse livre, jeito de FPS).
+   *
+   * Só faz sentido em primeira pessoa. Pode ser recusada -- dentro de um
+   * iframe sem `allow="pointer-lock"` o navegador nega com SecurityError, e no
+   * Chrome recente a recusa chega como Promise rejeitada. Engolimos a falha
+   * porque existe o caminho alternativo: arrastar com o botão DIREITO.
+   */
+  capturarPonteiro() {
+    if (this.travada || this.capturaIndisponivel) return;
+    if (!this.dom.requestPointerLock) {
+      this.capturaIndisponivel = true;   // navegador sem a API
+      return;
+    }
+
+    // Uma tentativa por vez. Sem esta marca, a MESMA falha era contada três
+    // vezes -- a promessa rejeitada, o evento `pointerlockerror` e o relógio
+    // de conferência disparam todos juntos -- e o limite de duas falhas era
+    // estourado logo na primeira tentativa.
+    this._tentativaPendente = true;
+
+    try {
+      const pedido = this.dom.requestPointerLock();
+      // NÃO inferir sucesso pelo retorno: Firefox e Safari devolvem
+      // `undefined` e travam o mouse assim mesmo. Quem diz se funcionou é o
+      // `pointerlockchange`, conferido logo abaixo pelo relógio.
+      if (pedido && typeof pedido.catch === "function") {
+        pedido.catch(() => this._falhouCaptura());
+      }
+    } catch {
+      this._falhouCaptura();
+      return;
+    }
+
+    clearTimeout(this._conferirCaptura);
+    this._conferirCaptura = setTimeout(() => {
+      if (!this.travada) this._falhouCaptura();
+    }, 350);
+  }
+
+  /**
+   * Uma tentativa falhou. Só desiste depois de DUAS seguidas.
+   *
+   * Desistir na primeira era errado: depois de o usuário apertar Esc, o
+   * navegador impõe cerca de um segundo de carência antes de aceitar uma nova
+   * captura. Clicar rápido demais nessa janela é falha temporária, e marcar
+   * "indisponível" ali matava o mouse preso pelo resto da sessão.
+   */
+  _falhouCaptura() {
+    if (!this._tentativaPendente) return;   // já contabilizada
+    this._tentativaPendente = false;
+    clearTimeout(this._conferirCaptura);
+    this._falhasDeCaptura += 1;
+    if (this._falhasDeCaptura >= 2) this.capturaIndisponivel = true;
+  }
+
+  _aoMudarCaptura() {
+    if (this.travada) {
+      // Funcionou: zera o histórico de falhas e reabilita o caminho normal.
+      clearTimeout(this._conferirCaptura);
+      this._falhasDeCaptura = 0;
+    this._tentativaPendente = false;
+      this.capturaIndisponivel = false;
+    }
+  }
+
   _aoDescer(evento) {
     if (evento.button === 0) {
+      // Em primeira pessoa, o primeiro clique captura o mouse em vez de
+      // atirar: sem isso a pessoa dispara sem querer só para poder olhar.
+      if (this.primeiraPessoa && !this.travada && !this.capturaIndisponivel) {
+        this.capturarPonteiro();
+        this._esquerdoPreso = false;
+        return;
+      }
+
+      // Em primeira pessoa o esquerdo dispara ao PRESSIONAR. Ele não gira a
+      // câmera, então não existe arrasto para diferenciar -- e esperar a
+      // soltura era o que fazia o tiro se perder quando a outra mão estava
+      // girando a câmera com o direito.
+      if (this.primeiraPessoa) {
+        this._esquerdoPreso = true;
+        if (this.ativa) this.aoClicar(evento);
+        return;
+      }
+
       this._esquerdoPreso = true;
-      this._moveu = false;
+      this._moveuEsquerdo = false;
       this._inicioX = evento.clientX;
       this._inicioY = evento.clientY;
+      // Pintando, o esquerdo já foi tratado por quem desenha; marcar como
+      // "arrastou" impede que a soltura vire um clique de jogo.
+      if (this.pincelando) this._moveuEsquerdo = true;
     } else if (evento.button === 2) {
       this._direitoPreso = true;
       this._direitoDesde = performance.now();
-      this._moveu = false;
+      this._moveuDireito = false;
       this._inicioX = evento.clientX;
       this._inicioY = evento.clientY;
       evento.preventDefault();
@@ -144,7 +272,10 @@ export class CameraTerceiraPessoa {
     if (evento.button === 0) {
       const era = this._esquerdoPreso;
       this._esquerdoPreso = false;
-      if (era && !this._moveu && this.ativa) this.aoClicar(evento);
+      // Na primeira pessoa já disparou no `pointerdown`.
+      if (era && !this.primeiraPessoa && !this._moveuEsquerdo && this.ativa) {
+        this.aoClicar(evento);
+      }
       return;
     }
 
@@ -152,7 +283,7 @@ export class CameraTerceiraPessoa {
       const foiToque =
         this._direitoPreso &&
         performance.now() - this._direitoDesde < TOQUE_MS &&
-        !this._moveu;
+        !this._moveuDireito;
       this._direitoPreso = false;
       this.aoMirar(false);
       if (foiToque && this.ativa) this.aoTocarDireito();
@@ -161,19 +292,33 @@ export class CameraTerceiraPessoa {
 
   _aoMover(evento) {
     if (!this.ativa) return;
-    if (!this._esquerdoPreso && !this._direitoPreso) return;
 
-    // O limiar de arrasto vale para o esquerdo, que também é gatilho: sem ele,
-    // o tremor da mão ao clicar viraria giro. Com o direito segurado a pessoa
-    // está mirando, e ali qualquer movimento tem que virar giro na hora --
-    // esperar 5 px daria sensação de mira travada.
-    if (!this._moveu) {
+    // Quem pode girar a câmera:
+    //   ponteiro capturado ..... sempre (FPS de verdade)
+    //   direito segurado ....... sim, é o alternativo quando a captura falha
+    //   esquerdo arrastando .... SÓ em terceira pessoa
+    //
+    // O esquerdo é o gatilho. Deixá-lo girar em primeira pessoa faz a mira
+    // escorregar a cada tiro, que é o que estava estranho.
+    const podeGirar =
+      this._direitoPreso ||
+      (!this.pincelando && (this.travada ||
+        (!this.primeiraPessoa && this._esquerdoPreso)));
+    if (!podeGirar) return;
+
+    // Com o ponteiro capturado o cursor não anda, então não há arrasto a
+    // medir: todo movimento é olhar.
+    if (!this.travada) {
       const andou = Math.hypot(
         evento.clientX - this._inicioX,
         evento.clientY - this._inicioY,
       );
-      if (!this._direitoPreso && andou < ARRASTO_MIN) return;
-      this._moveu = true;
+      if (this._direitoPreso) {
+        this._moveuDireito = true;      // cancela o "toque" de disparo
+      } else {
+        if (andou < ARRASTO_MIN) return; // ainda pode virar clique
+        this._moveuEsquerdo = true;
+      }
     }
 
     const sens = 0.0032;
@@ -185,8 +330,55 @@ export class CameraTerceiraPessoa {
   _aoRolar(evento) {
     if (!this.ativa) return;
     evento.preventDefault();
+    if (this.pincelando) {
+      // No ateliê a faixa é outra: o bicho tem 26 cm, e o mínimo de 1,4 m que
+      // serve para uma pessoa deixaria o corpo do tamanho de uma unha.
+      this.distanciaPintura += evento.deltaY * 0.0006;
+      this.distanciaPintura = Math.max(0.22, Math.min(1.6, this.distanciaPintura));
+      return;
+    }
     this.distancia += evento.deltaY * 0.0022;
     this.distancia = Math.max(DIST_MIN, Math.min(DIST_MAX, this.distancia));
+  }
+
+  /**
+   * Primeira pessoa: a câmera É o olho do personagem.
+   *
+   * Existe porque em terceira pessoa a linha de tiro nunca coincide com a
+   * linha de visão -- a arma está na mão, a câmera está sobre o ombro, e todo
+   * disparo sai em diagonal até o alvo. Dá para compensar por projeção, mas o
+   * resultado continua estranho de perto. Aqui o problema não existe: a mira
+   * sai do olho, e a arma é um viewmodel colado na câmera.
+   *
+   * Sem braço telescópico e sem sonda de parede: não há nada entre a lente e
+   * o personagem para colidir.
+   */
+  atualizarPrimeiraPessoa(dt, pes) {
+    // Campo de visão fixo. O botão direito não aproxima: o zoom deslocava a
+    // imagem inteira a cada toque, e como ele também é atalho de tiro, isso
+    // acontecia justamente na hora de mirar.
+    if (this.camera.fov !== FOV_NORMAL) {
+      this.camera.fov = FOV_NORMAL;
+      this.camera.updateProjectionMatrix();
+    }
+
+    const cp = Math.cos(this.pitch);
+    this._dir.set(
+      -Math.sin(this.yaw) * cp,
+      -Math.sin(this.pitch),
+      -Math.cos(this.yaw) * cp,
+    ).normalize();
+
+    this.camera.position.set(pes.x, pes.y + ALTURA_OLHOS, pes.z);
+    this.camera.lookAt(
+      this._origem.copy(this.camera.position).addScaledVector(this._dir, 10),
+    );
+    this.distanciaAtual = 0;
+  }
+
+  /** Direção para onde a câmera aponta no plano, para o corpo acompanhar. */
+  get direcaoNoPlano() {
+    return Math.atan2(-Math.sin(this.yaw), -Math.cos(this.yaw));
   }
 
   /** Aponta a camera para `alvo` respeitando as paredes entre os dois. */
@@ -211,6 +403,27 @@ export class CameraTerceiraPessoa {
     }
 
     this.camera.position.copy(alvo).addScaledVector(this._dir, this.distanciaAtual);
+    this.camera.lookAt(alvo);
+  }
+
+  /**
+   * Enquadramento de pintura: bem perto do bicho, sem sondar parede.
+   *
+   * O limite normal de 1,4 m existe para não enfiar a lente dentro de um
+   * personagem de 1,8 m -- numa lagartixa de 26 cm ele deixa o corpo do
+   * tamanho de uma unha, e não dá para pintar o que não se enxerga. A colisão
+   * também sai de cena: aqui ninguém anda, e a câmera encostar na parede é
+   * menos ruim do que ela pular para trás no meio de um traço.
+   */
+  enquadrarPintura(dt, alvo, distancia) {
+    const cp = Math.cos(this.pitch);
+    this._dir.set(
+      Math.sin(this.yaw) * cp,
+      Math.sin(this.pitch),
+      Math.cos(this.yaw) * cp,
+    ).normalize();
+    this.distanciaAtual = distancia;
+    this.camera.position.copy(alvo).addScaledVector(this._dir, distancia);
     this.camera.lookAt(alvo);
   }
 

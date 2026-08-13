@@ -12,6 +12,10 @@ function urlDoServidor() {
   return `${protocolo}//${location.host}/ws`;
 }
 
+// O mesmo teto do servidor (tools/multiplayer.js). Enviar acima disso derruba
+// o quadro inteiro no `maxPayload` do ws, sem erro visível.
+export const LIMITE_TEXTURA = 96 * 1024;
+
 export class Rede {
   constructor() {
     this.ws = null;
@@ -35,6 +39,10 @@ export class Rede {
     this.aoDano = () => {};
     this.aoReviver = () => {};
     this.aoDisparo = () => {};
+    this.aoTextura = () => {};
+    this.aoFase = () => {};
+    this.aoSala = () => {};
+    this.aoAssobio = () => {};
     this.aoDesconectar = () => {};
   }
 
@@ -87,6 +95,10 @@ export class Rede {
           case "sinal": this.aoSinal(msg.de, msg.dados); break;
           case "midia": this.aoMidia(msg.id, msg.midia); break;
           case "pintar": this.aoPintar(msg.id, msg.cor); break;
+          case "textura": this.aoTextura(msg.id, msg.dados); break;
+          case "fase": this.aoFase(msg); break;
+          case "sala": this.aoSala(msg); break;
+          case "assobio": this.aoAssobio(msg.id); break;
           case "dano": this.aoDano(msg); break;
           case "reviver": this.aoReviver(msg); break;
           case "disparo": this.aoDisparo(msg); break;
@@ -160,8 +172,28 @@ export class Rede {
     this.ws.send(JSON.stringify({ tipo: "midia", ...estado }));
   }
 
+  iniciarRodada() {
+    if (this.conectado) this.ws.send(JSON.stringify({ tipo: "iniciar" }));
+  }
+
   pintar(cor) {
     if (this.conectado) this.ws.send(JSON.stringify({ tipo: "pintar", cor }));
+  }
+
+  /**
+   * Manda o atlas pintado à mão.
+   *
+   * Vai como PNG em data URL. É grande perto do resto do protocolo (dezenas de
+   * KB contra dezenas de bytes), então só sai ao fim de uma pincelada, nunca
+   * durante -- e o servidor recusa acima do teto dele.
+   */
+  pintarTextura(dataUrl) {
+    if (!this.conectado || typeof dataUrl !== "string") return;
+    if (dataUrl.length > LIMITE_TEXTURA) {
+      console.warn("[rede] pintura grande demais, descartada:", dataUrl.length);
+      return;
+    }
+    this.ws.send(JSON.stringify({ tipo: "textura", dados: dataUrl }));
   }
 
   atirar(alvo, origem, fim) {

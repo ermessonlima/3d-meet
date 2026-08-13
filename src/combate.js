@@ -36,6 +36,16 @@ const NA_MAO = {
 };
 
 const DURACAO_CLARAO_MS = 70;
+
+// Arma colada na câmera, estilo FPS: à direita, abaixo e À FRENTE do olho.
+//
+// O Z é NEGATIVO porque a câmera do three.js olha para -Z. Com +0.42 a arma
+// fica atrás da lente: invisível, e com a boca do cano 2 cm às costas.
+const VIEWMODEL = {
+  posicao: [0.19, -0.17, -0.42],
+  rotacao: [0.02, Math.PI + 0.06, 0],
+  escala: 0.42,
+};
 // Soltar o botão direito antes disto conta como toque, e dispara.
 const TOQUE_MS = 260;
 
@@ -93,6 +103,62 @@ export class Combate {
    * existe dentro do modelo. Pendurar ali faz a arma acompanhar a animação
    * sozinha -- sem isso seria preciso copiar a matriz da mão a cada quadro.
    */
+  /**
+   * Pendura a arma na CÂMERA (viewmodel de FPS).
+   *
+   * A boca fica a meio metro do olho, quase sobre a linha de mira -- é isso
+   * que faz o dardo sair reto sem truque nenhum. O corpo do personagem some
+   * em primeira pessoa, então a arma na mão não faz falta.
+   */
+  equiparNaCamera(arma = this.arma) {
+    if (!arma) return null;
+    arma.position.fromArray(VIEWMODEL.posicao);
+    arma.rotation.fromArray(VIEWMODEL.rotacao);
+    arma.rotateZ(Math.PI);          // a malha vem com o +Y para baixo
+    arma.scale.setScalar(VIEWMODEL.escala);
+
+    // Sem sombra: um viewmodel projeta sombra de arma gigante no chão, porque
+    // ele está a 40 cm da lente e não onde o corpo está.
+    arma.traverse((o) => { if (o.isMesh) o.castShadow = false; });
+
+    this.camera.add(arma);
+    this._acharBoca(arma);
+    return arma;
+  }
+
+  /**
+   * Descobre de que lado fica a ponta do cano, medindo.
+   *
+   * As rotações empilhadas (giro em Y para alinhar com a câmera, mais a
+   * rolagem em Z porque a malha vem de cabeça para baixo) tornam o sinal do
+   * eixo local difícil de prever -- na primeira tentativa a "boca" caiu 2 cm
+   * ATRÁS do olho, e o clarão teria saído nas costas. Em vez de deduzir,
+   * testamos as duas pontas e ficamos com a que estiver mais à frente.
+   */
+  _acharBoca(arma) {
+    if (!this.boca) {
+      this.boca = new THREE.Object3D();
+      this.boca.name = "boca";
+      arma.add(this.boca);
+    }
+
+    this.camera.updateWorldMatrix(true, true);
+    const frente = this.camera.getWorldDirection(new THREE.Vector3());
+    const olho = this.camera.getWorldPosition(new THREE.Vector3());
+    const teste = new THREE.Vector3();
+
+    let melhor = null;
+    for (const z of [0.95, -0.95]) {
+      this.boca.position.set(0, 0, z);
+      this.boca.updateWorldMatrix(true, false);
+      teste.setFromMatrixPosition(this.boca.matrixWorld);
+      const avanco = teste.sub(olho).dot(frente);
+      if (!melhor || avanco > melhor.avanco) melhor = { z, avanco };
+    }
+    this.boca.position.set(0, 0, melhor.z);
+    return melhor;
+  }
+
   equipar(modelo, arma = this.arma) {
     if (!arma) return null;
     const mao = modelo.getObjectByName("Hand_R") ?? modelo.getObjectByName("hand_r");

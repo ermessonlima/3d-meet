@@ -188,15 +188,92 @@
 
     <div id="mira" hidden aria-hidden="true"></div>
 
+    <p id="aviso-ponteiro" hidden>
+      <kbd>clique</kbd> <span>para capturar o mouse e olhar em volta</span>
+    </p>
+
     <div id="vida" hidden>
       <span class="rotulo">Vida</span>
       <div class="pontos"></div>
     </div>
 
+    <!-- Cronômetro da rodada. Some quando não há partida em andamento. -->
+    <div id="rodada" hidden role="status">
+      <span class="fase"></span>
+      <span class="relogio">0:00</span>
+      <button type="button" id="iniciar-rodada" hidden>
+        <i data-icone="jogar" data-tamanho="14"></i>
+        <span>Começar</span>
+      </button>
+    </div>
+
     <div id="paleta" hidden>
       <span class="rotulo">Pintura</span>
       <div class="cores"></div>
+      <label class="livre" title="Escolher qualquer cor">
+        <input type="color" id="cor-livre" value="#5f9e4a" />
+        <span>outra</span>
+      </label>
+      <button type="button" id="copiar-chao" title="Copiar a cor do chão">
+        <i data-icone="conta-gotas" data-tamanho="15"></i>
+        <span>Chão</span>
+        <kbd>X</kbd>
+      </button>
+      <button type="button" id="abrir-pintura" title="Pintar à mão">
+        <i data-icone="pincel" data-tamanho="15"></i>
+        <span>Pincel</span>
+        <kbd>P</kbd>
+      </button>
+      <span class="separa"></span>
+      <span class="rotulo">Pose</span>
+      <div class="poses"></div>
+      <span class="separa"></span>
       <kbd>C</kbd><span class="dica-esconder">esconder</span>
+    </div>
+
+    <!--
+      Ateliê: modo de pintura à mão. Fica sobre o jogo em vez de numa tela
+      separada porque a lagartixa precisa ser vista NO cenário -- a graça é
+      comparar a pintura com a parede atrás dela enquanto se pinta.
+    -->
+    <div id="atelie" hidden role="dialog" aria-label="Pintar a lagartixa">
+      <header>
+        <i data-icone="pincel" data-tamanho="16"></i>
+        <h2>Ateliê</h2>
+        <button type="button" id="fechar-pintura" class="primario">Pronto</button>
+      </header>
+
+      <div class="linha">
+        <span class="rotulo">Cor</span>
+        <div class="cores-atelie"></div>
+        <label class="livre" title="Escolher qualquer cor">
+          <input type="color" id="cor-pincel" value="#5f9e4a" />
+        </label>
+      </div>
+
+      <div class="linha">
+        <span class="rotulo">Pincel</span>
+        <input type="range" id="tamanho-pincel" min="4" max="60" step="1" value="18"
+               aria-label="Tamanho do pincel" />
+        <span class="amostra-pincel"><i></i></span>
+      </div>
+
+      <div class="linha acoes">
+        <button type="button" id="conta-gotas" aria-pressed="false"
+                title="Clique em qualquer coisa do cenário para pegar a cor">
+          <i data-icone="conta-gotas" data-tamanho="15"></i>
+          <span>Conta-gotas</span>
+        </button>
+        <button type="button" id="preencher-tudo" title="Pintar o corpo inteiro desta cor">
+          <i data-icone="balde" data-tamanho="15"></i>
+          <span>Cobrir tudo</span>
+        </button>
+      </div>
+
+      <p class="ajuda" id="ajuda-pintura">
+        Arraste com o <strong>botão esquerdo</strong> sobre o corpo para pintar.
+        Com o <strong>direito</strong>, gire em volta; a roda aproxima.
+      </p>
     </div>
 
     <p id="abatido" hidden role="status">
@@ -247,9 +324,9 @@
         <kbd>botão direito</kbd> mover <kbd>T</kbd> teto
       </span>
       <span data-modo="andar" hidden>
-        <kbd>W A S D</kbd> andar <kbd>botão direito</kbd> mirar e atirar
-        <kbd>esquerdo</kbd> atirar <kbd>C</kbd> esconder
-        <kbd>espaço</kbd> pular <kbd>Y</kbd> falar
+        <kbd>W A S D</kbd> andar <kbd>mouse</kbd> olhar
+        <kbd>esquerdo</kbd> atirar
+        <kbd>C</kbd> esconder <kbd>espaço</kbd> pular <kbd>Y</kbd> falar
       </span>
     </p>
 

@@ -3,6 +3,12 @@ import * as THREE from "three";
 import { carregarPersonagem } from "./carregarModelo.js";
 import { Balao, criarEtiqueta, descartarEtiqueta } from "./etiquetas.js";
 import { pintarRemoto } from "./lagartixa.js";
+import {
+  isolarMateriais,
+  garantirUV,
+  aplicarPinturaRemota,
+  limparPinturaRemota,
+} from "./pinturaLagartixa.js";
 
 // A lagartixa tem um modelo só; os humanos, um por personagem escolhido.
 const CAMINHO = (dados) =>
@@ -42,15 +48,28 @@ class Remoto {
 
     this.buffer = [];  // {t, p:Vector3, yaw}
     if (this.papel === "lagartixa") {
+      // Cada lagartixa precisa dos próprios materiais: o `clone` de avatares
+      // reaproveita as instâncias do GLB, e sem isolar a cor de uma valeria
+      // para todas.
+      isolarMateriais(this.raiz);
+      garantirUV(this.raiz);
       pintarRemoto(this.raiz, dados.pintura ?? "#5f9e4a", false);
+      if (dados.textura) this.pintarTextura(dados.textura);
     }
-    this.etiqueta = criarEtiqueta(this.nome, this.cor);
-    // A etiqueta acompanha a altura do corpo: 2 m sobre uma lagartixa de 10 cm
-    // ficaria boiando longe do bicho.
-    this.etiqueta.position.set(0, this.papel === "lagartixa" ? 0.4 : 2.05, 0);
-    this.raiz.add(this.etiqueta);
+    // Lagartixa NÃO tem etiqueta. Um nome flutuando sobre o bicho anula a
+    // camuflagem inteira: não adianta pintar do tom exato do carpete se um
+    // rótulo legível aponta para o esconderijo.
+    this.etiqueta =
+      this.papel === "lagartixa" ? null : criarEtiqueta(this.nome, this.cor);
+    if (this.etiqueta) {
+      this.etiqueta.position.set(0, 2.05, 0);
+      this.raiz.add(this.etiqueta);
+    }
 
-    this.balao = new Balao(this.raiz, this.papel === "lagartixa" ? 0.62 : 2.42);
+    // Pelo mesmo motivo, a lagartixa não estoura balão de fala no mundo: o que
+    // ela escrever aparece só no chat lateral.
+    this.balao =
+      this.papel === "lagartixa" ? null : new Balao(this.raiz, 2.42);
   }
 
   _trocarAnim(nome) {
@@ -80,7 +99,17 @@ class Remoto {
   }
 
   dizer(texto) {
-    this.balao.dizer(texto);
+    this.balao?.dizer(texto);
+  }
+
+  limparTextura() {
+    limparPinturaRemota(this.raiz);
+  }
+
+  pintarTextura(dataUrl) {
+    aplicarPinturaRemota(this.raiz, dataUrl).catch((erro) =>
+      console.error("[remotos] pintura inválida de", this.nome, erro),
+    );
   }
 
   atualizar(dt, agora, camera) {
@@ -119,13 +148,13 @@ class Remoto {
     }
 
     // As etiquetas são planos; sem isto ficariam de lado conforme a câmera gira.
-    this.etiqueta.quaternion.copy(camera.quaternion);
-    this.balao.atualizar(camera);
+    this.etiqueta?.quaternion.copy(camera.quaternion);
+    this.balao?.atualizar(camera);
   }
 
   descartar() {
-    descartarEtiqueta(this.etiqueta);
-    this.balao.limpar();
+    if (this.etiqueta) descartarEtiqueta(this.etiqueta);
+    this.balao?.limpar();
   }
 }
 
@@ -150,6 +179,9 @@ export class JogadoresRemotos {
     this.renderer = renderer;
     this.mapa = new Map();
     this._cache = new Map();
+    /** Chamado quando um avatar termina de carregar e entra na cena. */
+    this.aoCriar = () => {};
+    this.aoRemover = () => {};
   }
 
   async _carregar(dados) {
@@ -180,6 +212,7 @@ export class JogadoresRemotos {
       const remoto = new Remoto(dados, modelo, clipes);
       this.mapa.set(dados.id, remoto);
       this.cena.add(remoto.raiz);
+      this.aoCriar(remoto);
     } catch (erro) {
       // Sem o catch, a falha vira uma rejeição não tratada e o lugar reservado
       // fica como null para sempre -- o jogador some da cena sem explicação.
@@ -192,6 +225,7 @@ export class JogadoresRemotos {
   remover(id) {
     const remoto = this.mapa.get(id);
     if (remoto) {
+      this.aoRemover(id);
       this.cena.remove(remoto.raiz);
       remoto.descartar();
     }

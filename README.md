@@ -169,6 +169,11 @@ O POLYGON Office não tem réptil nenhum (só um peixe de aquário), então a
 lagartixa é modelada por script em [tools/lagartixa.py](tools/lagartixa.py):
 11 caixas, 132 triângulos, 79 KB.
 
+**Ela olha para +Z.** O corpo é montado com a cabeça no +Y do Blender, que o
+exportador manda para o **-Z** do glTF — e o jogo alinha o +Z do modelo à
+direção do movimento, como faz com os personagens humanos. Sem uma meia-volta
+no nó raiz, a lagartixa anda de costas, com o rabo na frente.
+
 **Sem esqueleto, de propósito.** O humano usa skinning porque veio riggado da
 Synty; a lagartixa é uma hierarquia de peças e a animação gira os *nós*. O glTF
 suporta isso nativamente e evita escrever pesos de skinning à mão — a parte mais
@@ -177,7 +182,77 @@ frágil de rigar um bicho do zero.
 **Material único de cor chapada**, e é isso que torna "pintar a lagartixa"
 trivial: é `material.color`, não uma região de atlas.
 
-### Atirar
+### Atirar — primeira pessoa
+
+Quem joga de **pessoa** vê em primeira pessoa: a câmera é o olho, a arma é um
+viewmodel colado nela no canto inferior direito, e o próprio corpo fica
+invisível (os outros continuam vendo o personagem inteiro). A **lagartixa**
+segue em terceira pessoa — ela precisa se ver para se esconder e se pintar.
+
+Isto substituiu a mira em terceira pessoa, e a razão é geométrica: ali a linha
+de tiro nunca coincide com a linha de visão. A arma está na mão, a câmera está
+sobre o ombro, e a boca do cano fica a **1 m** da linha da mira — todo disparo
+saía em diagonal até o alvo (3,7° a 16 m, e bem pior de perto). Dá para
+compensar por projeção, e eu compensei, mas o resultado continuava esquisito.
+Em primeira pessoa o problema não existe: a boca fica 82 cm à frente do olho,
+quase sobre a mira.
+
+**Olhar é com o mouse livre**, via captura do ponteiro: o primeiro clique
+captura (esse clique não atira), depois é só mover; `Esc` devolve o cursor.
+Isso só voltou a ser possível porque o clique-para-andar saiu — era ele que
+exigia um cursor visível.
+
+Em primeira pessoa o botão **esquerdo nunca gira a câmera**, nem arrastando.
+Ele é o gatilho, e deixá-lo girar fazia a mira escorregar a cada tiro. Lá ele
+dispara ao **pressionar**, não ao soltar: sem arrasto para diferenciar, esperar
+a soltura só atrasava o tiro — e criava um bug feio, descrito abaixo.
+
+**Cada botão tem a própria flag de "arrastou".** Compartilhar uma só entre os
+dois quebrava a combinação mais natural do jogo: segurando o direito para olhar
+em volta, o movimento marcava "arrastou", e o clique esquerdo era descartado
+como se fosse arrasto — não dava para atirar enquanto se virava a câmera.
+
+**Quando a captura é recusada** — iframe sem `allow="pointer-lock"`, webview,
+ou permissão negada — o jogo detecta e cai para *arrastar com o botão direito*,
+avisando na tela. Marcar a recusa é essencial: sem a marca, todo clique
+esquerdo continuava sendo consumido pela tentativa de capturar e **não dava
+para atirar**.
+
+Detectar essa recusa tem três armadilhas, e as três morderam:
+
+- **Não dá para inferir sucesso pelo retorno.** Firefox e Safari devolvem
+  `undefined` de `requestPointerLock()` e travam o mouse assim mesmo; tratar
+  `undefined` como falha desabilitava a captura justamente onde ela funciona.
+  Quem decide é o evento `pointerlockchange`.
+- **Uma falha não é o fim.** Depois do `Esc` o navegador impõe ~1 s de carência
+  antes de aceitar nova captura. Desistir na primeira falha matava o mouse
+  preso pelo resto da sessão. São necessárias duas falhas seguidas, e uma
+  captura bem-sucedida zera o contador.
+- **A mesma falha chega três vezes** — promessa rejeitada, evento
+  `pointerlockerror` e o relógio de conferência disparam juntos. Sem
+  contabilizar uma tentativa por vez, o limite de duas era estourado na
+  primeira.
+
+O campo de visão é fixo em 50°. O botão direito **não** aproxima: o zoom
+deslocava a imagem inteira a cada toque, e como o mesmo botão é atalho de tiro,
+isso acontecia justamente na hora de mirar. Ele ficou como atalho de disparo e
+como alternativa para olhar quando a captura do ponteiro é recusada.
+
+### Explosão ao ser atingido
+
+Todo acerto estoura a vítima em estilhaços poligonais — cubinhos com gravidade
+e rotação, não uma nuvem borrada: num cenário todo facetado, estilhaço combina
+melhor e custa uma geometria compartilhada.
+
+**A cor sai de quem explodiu.** A lagartixa pintada de vermelho estoura em
+vermelho; é o que faz o efeito parecer daquele personagem em vez de um efeito
+genérico colado por cima.
+
+**A escala sai do tamanho da vítima**, não só do dano. Na primeira versão a
+lagartixa de 10 cm soltava estilhaço de meio metro — pedaço maior que o bicho.
+O abate estoura o dobro do impacto normal, e o corpo some até renascer.
+
+### Detalhes do disparo
 
 | Gesto | O que faz |
 |---|---|

@@ -48,15 +48,23 @@ def log(msg):
     print("[lagartixa] %s" % msg, flush=True)
 
 
-def caixa(nome, tamanho, local=(0, 0, 0), pai=None, conicidade=1.0):
-    """Cria uma caixa. `conicidade` afina a ponta +Y, para cauda e focinho."""
+def caixa(nome, tamanho, local=(0, 0, 0), pai=None, conicidade=1.0, desloc_y=0.0):
+    """Cria uma caixa. `conicidade` afina a ponta +Y, para cauda e focinho.
+
+    `desloc_y` empurra a GEOMETRIA dentro do objeto sem mexer no objeto. Serve
+    para tirar o pivo do centro da caixa: com -ly, a origem passa a ficar na
+    ponta +Y, e girar o objeto vira uma dobradica naquela ponta em vez de um
+    giro em torno do meio. E o que a cauda precisa para enrolar sem abrir
+    fresta entre os elos.
+    """
     lx, ly, lz = (t / 2 for t in tamanho)
     k = conicidade
+    d = desloc_y
 
     verts = [
-        (-lx, -ly, -lz), (lx, -ly, -lz), (lx, -ly, lz), (-lx, -ly, lz),
-        (-lx * k, ly, -lz * k), (lx * k, ly, -lz * k),
-        (lx * k, ly, lz * k), (-lx * k, ly, lz * k),
+        (-lx, -ly + d, -lz), (lx, -ly + d, -lz), (lx, -ly + d, lz), (-lx, -ly + d, lz),
+        (-lx * k, ly + d, -lz * k), (lx * k, ly + d, -lz * k),
+        (lx * k, ly + d, lz * k), (-lx * k, ly + d, lz * k),
     ]
     faces = [
         (0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
@@ -114,16 +122,23 @@ def montar():
     # (metade do pai) + (metade do filho), menos uma sobreposicao para nao
     # abrir fresta quando a cauda dobra. Usar o comprimento errado aqui
     # desmonta a cauda em pedacos flutuando.
+    #
+    # Cada elo tem o pivo na JUNTA com o pai (desloc_y = -metade), nao no
+    # proprio centro. Com o pivo no centro, dobrar a cauda afastava a ponta de
+    # tras de um elo da ponta da frente do seguinte, e a cauda se desmontava em
+    # pedacos flutuando -- o que aparecia assim que uma pose pedia dobra forte.
     cauda = []
     pai = corpo
-    comprimento_pai = CORPO[1]
+    # A distancia ate a junta seguinte: a partir do corpo e meio corpo; a partir
+    # de um elo (cuja origem ja esta na junta da frente) e o elo inteiro.
+    ate_a_junta = CORPO[1] / 2
     for i, tam in enumerate(CAUDA):
-        y = -(comprimento_pai / 2) - (tam[1] / 2) + 0.010
+        y = -ate_a_junta + 0.010
         seg = caixa("cauda_%d" % (i + 1), tam, (0, y, -0.004 if i == 0 else 0),
-                    pai, conicidade=0.74)
+                    pai, conicidade=0.74, desloc_y=-tam[1] / 2)
         cauda.append(seg)
         pai = seg
-        comprimento_pai = tam[1]
+        ate_a_junta = tam[1]
 
     return raiz, corpo, cabeca, patas, cauda
 
@@ -270,6 +285,97 @@ def anim_esconder(t, f, p):
         _chave(p[seg], f, rot=_eixo((0, 0, 1), 2 * math.sin(fase - i)))
 
 
+def anim_em_pe(t, f, p):
+    """Empinada nas patas traseiras, olhando em volta.
+
+    A silhueta fica VERTICAL, que e o oposto do que camuflagem pede -- e essa e
+    a troca: de pe ela enxerga por cima dos moveis, mas vira a unica coisa com
+    formato de bicho num escritorio cheio de coisas achatadas.
+    """
+    fase = 2 * math.pi * t
+    balanco = math.sin(fase)
+
+    # O corpo se levanta girando no eixo X. 62 graus deixa quase em pe sem
+    # descolar a base das patas traseiras do chao.
+    _chave(p["corpo"], f,
+           rot=_eixo((1, 0, 0), 62 + 1.6 * balanco),
+           loc=(0, -0.012, ALTURA_CORPO + 0.055))
+    # A cabeca compensa a inclinacao do corpo para olhar para a frente, e
+    # varre os lados devagar.
+    _chave(p["cabeca"], f,
+           rot=_eixo((1, 0, 0), -34) @ _eixo((0, 0, 1), 16 * math.sin(fase * 0.5)))
+
+    # Dianteiras dobradas junto ao peito; traseiras firmes no chao.
+    for nome in ("FL", "FR"):
+        _chave(p["pata_" + nome], f, rot=_eixo((1, 0, 0), -74 + 3 * balanco))
+    for nome in ("TL", "TR"):
+        _chave(p["pata_" + nome], f, rot=_eixo((1, 0, 0), -50))
+
+    # A cauda desce e serve de tripe -- e o que impede a pose de parecer que o
+    # bicho esta caindo para tras.
+    #
+    # Com o pivo na junta, o giro de cada elo ACUMULA sobre o do pai: tres elos
+    # a -22 graus somam -66 e desfazem quase exatamente os +62 do corpo, o que
+    # deita a cauda no chao. Angulos maiores (o -26/-34/-42 de antes) davam mais
+    # de -100 no acumulado e jogavam a ponta longe do corpo.
+    for i, seg in enumerate(("cauda_1", "cauda_2", "cauda_3")):
+        _chave(p[seg], f, rot=_eixo((1, 0, 0), -22 + 1.0 * math.sin(fase - i)))
+
+
+def anim_deitada(t, f, p):
+    """Espichada no chao, patas abertas, cauda reta.
+
+    Silhueta LONGA e baixa. Encostada num rodape ou na juncao de duas placas
+    de carpete, le como uma sombra ou uma emenda do piso.
+    """
+    fase = 2 * math.pi * t
+    respira = math.sin(fase)
+
+    _chave(p["corpo"], f, rot=_eixo((1, 0, 0), -2),
+           loc=(0, 0, 0.022 + 0.002 * respira))
+    _chave(p["cabeca"], f, rot=_eixo((1, 0, 0), 6))
+    # As patas esticam ao LONGO do corpo -- dianteiras para a frente, traseiras
+    # para tras -- em vez de abrirem para os lados.
+    #
+    # E o que separa esta pose do "Esconder", que tambem deita o bicho mas abre
+    # as patas em cruz: la a silhueta fica larga, aqui fica estreita e comprida.
+    # Duas maneiras diferentes de sumir, para dois tipos de canto diferentes.
+    for nome, sx in (("FL", 1), ("FR", -1)):
+        _chave(p["pata_" + nome], f,
+               rot=_eixo((0, 1, 0), sx * 84) @ _eixo((1, 0, 0), -62))
+    for nome, sx in (("TL", 1), ("TR", -1)):
+        _chave(p["pata_" + nome], f,
+               rot=_eixo((0, 1, 0), sx * 84) @ _eixo((1, 0, 0), 58))
+    # Cauda quase reta: o comprimento e o disfarce.
+    for i, seg in enumerate(("cauda_1", "cauda_2", "cauda_3")):
+        _chave(p[seg], f, rot=_eixo((0, 0, 1), 1.5 * math.sin(fase - i * 0.6)))
+
+
+def anim_encolhida(t, f, p):
+    """Enrolada, cauda em volta do corpo, cabeca baixa.
+
+    Silhueta COMPACTA. No meio de tralha de escritorio -- pes de cadeira,
+    tomadas, lixo -- um vulto arredondado do tamanho de um punho passa por
+    mais um objeto qualquer.
+    """
+    fase = 2 * math.pi * t
+    respira = math.sin(fase)
+
+    _chave(p["corpo"], f, rot=_eixo((1, 0, 0), -8),
+           loc=(0, 0, ALTURA_CORPO * 0.72 + 0.002 * respira))
+    # Cabeca virada para dentro, encostando no proprio flanco.
+    _chave(p["cabeca"], f, rot=_eixo((0, 0, 1), 68) @ _eixo((1, 0, 0), 22))
+    # Patas recolhidas embaixo do corpo, nao abertas.
+    for nome in ("FL", "FR", "TL", "TR"):
+        lado = 1 if nome.endswith("L") else -1
+        _chave(p["pata_" + nome], f,
+               rot=_eixo((0, 1, 0), lado * 18) @ _eixo((1, 0, 0), 58))
+    # A cauda se enrola de verdade: com o pivo na junta, cada elo dobra sobre o
+    # anterior e o acumulo (3 x 48 graus) fecha quase meia volta, sem fresta.
+    for i, seg in enumerate(("cauda_1", "cauda_2", "cauda_3")):
+        _chave(p[seg], f, rot=_eixo((0, 0, 1), 48 + 0.8 * math.sin(fase - i)))
+
+
 def exportar():
     os.makedirs(os.path.dirname(SAIDA), exist_ok=True)
     bpy.ops.export_scene.gltf(
@@ -299,6 +405,12 @@ def main():
     raiz, corpo, cabeca, patas, cauda = montar()
     material(raiz)
 
+    # O corpo e montado com a cabeca no +Y do Blender, que o exportador manda
+    # para o -Z do glTF. O jogo alinha o +Z do modelo a direcao do movimento
+    # (mesma convencao dos personagens humanos), entao sem esta meia-volta a
+    # lagartixa anda de costas -- rabo na frente.
+    raiz.rotation_euler.z = math.pi
+
     pecas = {"corpo": corpo, "cabeca": cabeca}
     for nome, pivo in patas.items():
         pecas["pata_" + nome] = pivo
@@ -308,6 +420,11 @@ def main():
     gravar("Parado", 3.0, anim_parado, pecas)
     gravar("Andar", 0.55, anim_andar, pecas)
     gravar("Esconder", 4.0, anim_esconder, pecas)
+    # Poses de silhueta. Duracao longa porque nao ha ciclo de verdade -- e uma
+    # pose parada com um respiro por cima.
+    gravar("EmPe", 4.5, anim_em_pe, pecas)
+    gravar("Deitada", 4.5, anim_deitada, pecas)
+    gravar("Encolhida", 4.5, anim_encolhida, pecas)
 
     total = sum(1 for o in bpy.data.objects if o.type == "MESH")
     tris = sum(len(o.data.polygons) * 2 for o in bpy.data.objects if o.type == "MESH")

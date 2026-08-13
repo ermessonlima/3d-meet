@@ -103,6 +103,14 @@ export class RegistroDeSalas {
       jogadores: new Map(),
       vaziaDesde: Date.now(),
       criadaEm: Date.now(),
+      // Ciclo da partida. Quem cuida das trocas é o multiplayer; aqui só
+      // nasce parado, porque uma sala vazia não tem rodada em andamento.
+      fase: "espera",
+      faseAte: 0,
+      // Quem manda começar a rodada. Definido na primeira entrada e repassado
+      // se essa pessoa sair -- sem isso a sala ficaria sem ninguém que possa
+      // dar a partida.
+      anfitriao: null,
     };
     this.salas.set(codigo, sala);
     return sala;
