@@ -249,6 +249,99 @@ export class Sensores {
   }
 }
 
+/**
+ * A jaula que fecha sobre quem pisou na armadilha.
+ *
+ * A rede é um pano que cai; isto é o oposto -- barras que sobem do chão e se
+ * fecham. Elas precisam ser coisas diferentes na tela, porque são coisas
+ * diferentes na regra: a rede pega quem corre, a armadilha pega quem passou
+ * por onde não devia. E o tempo delas na tela é o tempo em que o servidor
+ * recusa o movimento, então dá para saber quando volta a dar para andar.
+ */
+export class Jaulas {
+  constructor(cena) {
+    this.cena = cena;
+    this.vivas = [];
+    this.barra = new THREE.CylinderGeometry(0.018, 0.018, 1, 5);
+    this.aro = new THREE.TorusGeometry(0.34, 0.022, 6, 20);
+  }
+
+  fechar(ponto, seguir, duracaoMs) {
+    const grupo = new THREE.Group();
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x9fd8ff,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    });
+
+    // Oito barras em círculo, curvadas para dentro no topo pelo próprio
+    // posicionamento: elas nascem retas e a animação as inclina.
+    const hastes = [];
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const h = new THREE.Mesh(this.barra, material);
+      h.position.set(Math.sin(a) * 0.3, 0.24, Math.cos(a) * 0.3);
+      h.scale.y = 0.48;
+      h.userData.a = a;
+      grupo.add(h);
+      hastes.push(h);
+    }
+    const base = new THREE.Mesh(this.aro, material);
+    base.rotation.x = Math.PI / 2;
+    grupo.add(base);
+    const topo = new THREE.Mesh(this.aro, material);
+    topo.rotation.x = Math.PI / 2;
+    topo.position.y = 0.46;
+    topo.scale.setScalar(0.55);
+    grupo.add(topo);
+
+    grupo.position.copy(ponto);
+    this.cena.add(grupo);
+    this.vivas.push({
+      grupo, hastes, material, seguir, t: 0, total: duracaoMs / 1000,
+    });
+  }
+
+  atualizar(dt) {
+    for (let i = this.vivas.length - 1; i >= 0; i--) {
+      const j = this.vivas[i];
+      j.t += dt;
+      if (j.t >= j.total) {
+        this.cena.remove(j.grupo);
+        j.material.dispose();
+        this.vivas.splice(i, 1);
+        continue;
+      }
+
+      const onde = j.seguir?.() ?? null;
+      if (onde) j.grupo.position.copy(onde);
+
+      // Fecha de estalo no primeiro décimo e depois só treme: uma jaula que
+      // sobe devagar dá a impressão de que dá para sair andando.
+      const abrindo = Math.min(1, j.t / 0.12);
+      const k = j.t / j.total;
+      for (const h of j.hastes) {
+        h.scale.y = 0.48 * abrindo;
+        h.position.y = 0.24 * abrindo;
+        const r = 0.3 - abrindo * 0.06 + Math.sin(j.t * 22 + h.userData.a) * 0.012;
+        h.position.x = Math.sin(h.userData.a) * r;
+        h.position.z = Math.cos(h.userData.a) * r;
+      }
+      // Desbota no fim, avisando que está para soltar.
+      j.material.opacity = 0.9 * Math.min(1, (1 - k) * 4);
+    }
+  }
+
+  limpar() {
+    for (const j of this.vivas) {
+      this.cena.remove(j.grupo);
+      j.material.dispose();
+    }
+    this.vivas.length = 0;
+  }
+}
+
 // ------------------------------------------------------------ pegadas
 
 const MARCA_MS = 7_000;

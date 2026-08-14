@@ -27,6 +27,27 @@ export class Jogador {
     this.velCorrida = opcoes.velCorrida ?? VEL_CORRIDA;
     this.avancoPorCiclo = opcoes.avancoPorCiclo ?? AVANCO_POR_CICLO;
     this.impulsoPulo = opcoes.impulsoPulo ?? IMPULSO_PULO;
+    /**
+     * Altura de degrau que o corpo sobe sozinho.
+     *
+     * A cápsula só sabe ser EMPURRADA para fora do que encosta nela. Numa
+     * escada isso vira o pior dos dois mundos: o espelho do degrau empurra o
+     * corpo para trás, ele escorrega de lado, e quem joga fica se sacudindo no
+     * primeiro degrau sem subir nenhum. Não é um caso raro -- é toda escada,
+     * todo batente e toda soleira do prédio.
+     *
+     * Uma pessoa sobe 45 cm sem pensar. A lagartixa recebe pouco porque ela
+     * escala parede: para ela um degrau já é superfície, e um valor grande a
+     * faria "pular" obstáculos que deveriam custar uma escalada.
+     */
+    this.alturaDoDegrau = opcoes.alturaDoDegrau ?? 0.45;
+    this._degrauBase = this.alturaDoDegrau;
+    this._raioDegrau = new THREE.Raycaster();
+    this._raioDegrau.firstHitOnly = true;
+    this._pDegrau = new THREE.Vector3();
+    this._antesDoPasso = new THREE.Vector3();
+    this._cimaInvertida = new THREE.Vector3();
+    this._dDegrau = new THREE.Vector3();
 
     this.raiz = new THREE.Group();
     this.raiz.add(modelo);
@@ -88,6 +109,12 @@ export class Jogador {
       new THREE.Vector3(0, this.raio, 0),
       new THREE.Vector3(0, Math.max(this.altura - this.raio, this.raio), 0),
     );
+
+    // Tamanho de fábrica, para o bônus surpresa poder voltar ao normal.
+    this._raioBase = this.raio;
+    this._alturaBase = this.altura;
+    this._velBase = { caminhada: this.velCaminhada, corrida: this.velCorrida };
+    this.escala = 1;
 
     this.mixer = new THREE.AnimationMixer(modelo);
     this.acoes = {};
@@ -465,7 +492,12 @@ export class Jogador {
     this.posicao.addScaledVector(this.cima, this._velNormal * dt);
     this.velocidade.copy(this.cima).multiplyScalar(this._velNormal);
 
+    // Onde o corpo estava ANTES de a colisão empurrá-lo: é a diferença entre
+    // isto e o depois que diz se ele progrediu ou bateu em alguma coisa.
+    this._antesDoPasso.copy(this.posicao);
+    const passoPretendido = velocidade * dt * (andando ? 1 : 0);
     this._resolverColisao(dt);
+    if (andando) this._subirDegrau(passoPretendido);
 
     // ---- vira o corpo para a direcao do movimento
     if (andando) {
@@ -527,6 +559,88 @@ export class Jogador {
    * O deslocamento total resultante diz tambem se o jogador esta no chao: se a
    * correcao apontou para cima mais do que a queda daquele frame, ele pousou.
    */
+  /**
+   * Muda o tamanho do corpo -- e do que ele ocupa no mundo.
+   *
+   * O bônus surpresa não podia ser só a malha crescendo: encolhida, ela
+   * precisa CABER onde não cabia, e crescida precisa deixar de caber. Isso é
+   * a cápsula, não o desenho. A velocidade acompanha porque é a outra metade
+   * da troca -- pequena se esconde melhor e corre pior, grande o contrário.
+   */
+  redimensionar(escala) {
+    this.escala = escala;
+    this.raio = this._raioBase * escala;
+    this.altura = this._alturaBase * escala;
+    this.capsula.start.set(0, this.raio, 0);
+    this.capsula.end.set(0, Math.max(this.altura - this.raio, this.raio), 0);
+    // Menor anda menos, maior anda mais -- mas não na proporção do tamanho,
+    // que deixaria a grande rápida demais para um escritório fechado.
+    const k = 1 + (escala - 1) * 0.6;
+    this.velCaminhada = this._velBase.caminhada * k;
+    this.velCorrida = this._velBase.corrida * k;
+    this.modelo.scale.setScalar(escala);
+    // Subir um degrau de gente encolhida seria teleporte; o degrau acompanha.
+    this.alturaDoDegrau = (this._degrauBase ?? this.alturaDoDegrau) * escala;
+  }
+
+  /**
+   * Sobe degraus curtos em vez de esbarrar neles.
+   *
+   * A cápsula só sabe ser EMPURRADA para fora do que encosta nela. Numa
+   * escada isso vira o pior dos dois mundos: o espelho do degrau empurra o
+   * corpo para trás, ele escorrega de lado, e quem joga se sacode no primeiro
+   * degrau sem subir nenhum.
+   *
+   * A detecção é toda com sonda PARA BAIXO, e isso não é detalhe: a primeira
+   * versão mirava o espelho do degrau com um raio horizontal e nunca acertava
+   * nada. As faces do cenário são de um lado só, e a do espelho olha para
+   * dentro do degrau -- o raio a atravessava como se não existisse. Faces de
+   * chão olham para cima, que é a direção de onde este raio vem, e são as
+   * mesmas que o resto do jogo já usa para achar piso.
+   *
+   * O gatilho é não ter PROGREDIDO: se o passo pretendido saiu quase todo,
+   * não há degrau nenhum e não há o que fazer. É isso que impede o corpo de
+   * flutuar para cima de coisas enquanto anda em campo aberto.
+   */
+  _subirDegrau(passoPretendido) {
+    if (!this.noChao || this.alturaDoDegrau <= 0) return;
+    if (passoPretendido <= 1e-4) return;
+
+    // Quanto do passo sobreviveu à colisão, medido no plano da superfície.
+    this._dDegrau.copy(this.posicao).sub(this._antesDoPasso);
+    this._dDegrau.addScaledVector(this.cima, -this._dDegrau.dot(this.cima));
+    if (this._dDegrau.length() > passoPretendido * 0.5) return;   // andou: sem degrau
+
+    this._dDegrau.copy(this._direcao);
+    this._dDegrau.addScaledVector(this.cima, -this._dDegrau.dot(this.cima));
+    if (this._dDegrau.lengthSq() < 1e-6) return;
+    this._dDegrau.normalize();
+
+    // De cima do ponto logo à frente, olhando para baixo: onde está o piso?
+    this._pDegrau.copy(this.posicao)
+      .addScaledVector(this._dDegrau, this.raio + 0.15)
+      .addScaledVector(this.cima, this.alturaDoDegrau + 0.15);
+    this._raioDegrau.set(this._pDegrau, this._cimaInvertida.copy(this.cima).negate());
+    this._raioDegrau.near = 0;
+    this._raioDegrau.far = this.alturaDoDegrau + 0.3;
+    const topo = this._raioDegrau.intersectObject(this.colisor, true)[0];
+    if (!topo?.face) return;
+
+    // Só sobe em superfície que dá para pisar: uma rampa quase vertical
+    // devolveria o corpo para dentro dela no quadro seguinte.
+    const normal = topo.face.normal.clone()
+      .transformDirection(topo.object.matrixWorld);
+    if (normal.dot(this.cima) < 0.5) return;
+
+    const subida = this._pDegrau.copy(topo.point).sub(this.posicao).dot(this.cima);
+    if (subida <= 0.02 || subida > this.alturaDoDegrau) return;
+
+    // Sobe só a altura, sem avançar: quem avança é a caminhada do próximo
+    // quadro, agora que o degrau deixou de estar no caminho.
+    this.posicao.addScaledVector(this.cima, subida + 0.02);
+    this._velNormal = 0;
+  }
+
   _resolverColisao(dt) {
     const bvh = this.colisor.geometry.boundsTree;
 
@@ -600,7 +714,7 @@ export function criarEntrada() {
   const teclas = new Set();
   const estado = {
     frente: false, tras: false, esquerda: false, direita: false,
-    correndo: false, pular: false,
+    correndo: false, pular: false, agachado: false,
   };
 
   const mapa = {
@@ -625,6 +739,10 @@ export function criarEntrada() {
     }
     estado.correndo = teclas.has("ShiftLeft") || teclas.has("ShiftRight");
     estado.pular = teclas.has("Space");
+    // Agachar é SEGURAR, não alternar: quem se abaixa para olhar embaixo de
+    // uma mesa quer levantar no instante em que vê -- e uma alternância deixa
+    // a pessoa andando agachada pelo escritório sem perceber.
+    estado.agachado = teclas.has("ControlLeft") || teclas.has("ControlRight");
     return estado;
   };
 }

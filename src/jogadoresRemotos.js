@@ -128,11 +128,22 @@ class Remoto {
       // Orientação de escalada; ausente quando o bicho anda no chão.
       cima: estado.c ?? null,
       frente: estado.f ?? null,
+      // Tamanho, quando o bônus surpresa mexeu nele. Sem isto o caçador vê a
+      // lagartixa do tamanho de sempre e atira onde ela não está.
+      escala: estado.s ?? 1,
       anim: estado.a,
     });
     // Dois estados bastam para interpolar; guardamos alguns a mais como folga
     // para engasgo de rede.
     while (this.buffer.length > 8) this.buffer.shift();
+  }
+
+  /** Acompanha o encolher e o crescer, amortecido para não estalar. */
+  _redimensionar(escala = 1) {
+    const alvo = escala || 1;
+    this._escalaAtual = this._escalaAtual ?? 1;
+    this._escalaAtual += (alvo - this._escalaAtual) * 0.18;
+    this.raiz.scale.setScalar(this._escalaAtual);
   }
 
   dizer(texto) {
@@ -173,6 +184,7 @@ class Remoto {
       const ultimo = b[b.length - 1];
       this.raiz.position.copy(ultimo.p);
       this._orientar(ultimo.cima, ultimo.frente, ultimo.yaw);
+      this._redimensionar(ultimo.escala);
       this.pitch = ultimo.pitch;
       this._trocarAnim(ultimo.anim);
     } else {
@@ -186,6 +198,7 @@ class Remoto {
       // deste tamanho.
       if (c.cima) this._orientar(c.cima, c.frente, c.yaw);
       else this.raiz.rotation.y = anguloInterpolado(a.yaw, c.yaw, k);
+      this._redimensionar(c.escala);
       this.pitch = a.pitch + (c.pitch - a.pitch) * k;
       this._trocarAnim(c.anim);
     }

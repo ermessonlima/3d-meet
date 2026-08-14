@@ -18,7 +18,6 @@ import { JogadoresRemotos } from "./jogadoresRemotos.js";
 import { Balao } from "./etiquetas.js";
 import { MidiaLocal, disponivel, podeCompartilharTela } from "./midia.js";
 import { MalhaWebRTC } from "./webrtc.js";
-import { PainelChat } from "./painelChat.js";
 import { TilesVideo } from "./tilesVideo.js";
 import { montarIcones, trocarIcone } from "./icones.js";
 import { GradeDeNavegacao } from "./navegacao.js";
@@ -30,7 +29,8 @@ import { Assobios } from "./assobio.js";
 import { CameraLivre } from "./cameraLivre.js";
 import { Interruptores } from "./interruptores.js";
 import { CaudasSoltas, CuspeNaTela, Escuridao, Faro, PedrasJogadas } from "./poderes.js";
-import { Batidas, Lanterna, Nuvens, Pegadas, Redes, Sensores } from "./poderesCacador.js";
+import { Batidas, Jaulas, Lanterna, Nuvens, Pegadas, Redes, Sensores } from "./poderesCacador.js";
+import { Bonus, procurarPontosDeBonus } from "./bonus.js";
 import { isolarMateriais } from "./pinturaLagartixa.js";
 import { ARTE, ARTE_CACADOR, ARTE_POSES, ARTE_ACOES } from "./artePoderes.js";
 import {
@@ -167,8 +167,19 @@ let sensores = null;
 let pegadas = null;
 let nuvens = null;
 let redesVoando = null;
+let jaulas = null;
+let bonus = null;
+/** Escudo da armadura, e o tamanho atual do corpo. */
+let comEscudo = false;
+/** Evita repetir o pedido a cada quadro enquanto se está em cima do bônus. */
+let _ultimoBonusPedido = null;
 /** Presa pela rede: o servidor decide, isto só congela a entrada e avisa. */
 let presoPelaRedeAte = 0;
+let presoTotalMs = 0;
+/** 0 = em pé, 1 = agachado. Amortecido para a lente não estalar. */
+let agachamento = 0;
+/** As velocidades de fábrica do caçador, para o agachar dividir a partir delas. */
+const CORPO_PESSOA = { velCaminhada: 0, velCorrida: 0 };
 /** Conjurando o disjuntor: some se andar. */
 let conjurandoAte = 0;
 let escuridao = null;
@@ -193,7 +204,6 @@ const naSala = new Map();
 
 const midia = new MidiaLocal();
 let malha = null;
-let painelChat = null;
 let tiles = null;
 let grade = null;
 let marcador = null;
@@ -213,7 +223,19 @@ let espectando = false;
 let modoEspectador = "livre";   // "livre" | "cacador"
 /** Lagartixa VIVA olhando de fora do corpo. null | "livre" | id de uma amiga. */
 let olhando = null;
-const RAIO_COLEIRA = 14;        // metros de corda para a câmera livre viva
+/**
+ * A corda da câmera livre da lagartixa VIVA.
+ *
+ * Começou em 14 m, escolhido para ela ser um jeito de olhar em volta e não um
+ * drone de reconhecimento. Na prática ficou curto demais: 14 m mal atravessa
+ * duas baias, e a câmera batia na corda antes de mostrar qualquer coisa útil.
+ *
+ * Em 60 m ela alcança quase o prédio inteiro. A corda continua existindo por
+ * um motivo que não é de equilíbrio: sem nenhum limite, um segundo de tecla
+ * presa manda a lente para fora do mapa e a pessoa perde a noção de onde o
+ * corpo dela ficou. Ela agora é um freio, não uma regra.
+ */
+const RAIO_COLEIRA = 60;
 let cacadorAssistido = null;
 const caidas = [];              // {id, nome, por}
 let souLagartixa = false;
@@ -298,6 +320,8 @@ async function carregar() {
   nuvens = new Nuvens(scene);
   batidas = new Batidas(scene);
   redesVoando = new Redes(scene);
+  jaulas = new Jaulas(scene);
+  bonus = new Bonus(scene);
   sensores = new Sensores(scene);
   escuridao = new Escuridao({ ...palco, scene });
   faro = new Faro(scene);
@@ -331,7 +355,6 @@ async function carregar() {
   chat = new Chat({ persona: PERSONA, nome: npc.nome });
   chat.aoFechar = () => encerrarConversa();
 
-  painelChat = new PainelChat();
   tiles = new TilesVideo();
 
   configurarInteracao();
@@ -377,7 +400,6 @@ lobby.aoConfirmar = async (pedido) => {
     malha.conectar(outro.id);
   }
 
-  painelChat.carregarHistorico(bemvindo.historico ?? [], rede.meuId);
 
   mostrarEtapa("Carregando seu personagem");
   elCarregando.hidden = false;
@@ -408,6 +430,11 @@ lobby.aoConfirmar = async (pedido) => {
       escalar: souLagartixa,
     },
   );
+
+  // De fábrica, antes de qualquer poder mexer nelas: é a partir daqui que o
+  // agachar e o arranque descontam.
+  CORPO_PESSOA.velCaminhada = jogador.velCaminhada;
+  CORPO_PESSOA.velCorrida = jogador.velCorrida;
 
   if (souLagartixa) {
     cameraJogo.distancia = CORPO_LAGARTIXA.distanciaCamera;
@@ -475,6 +502,13 @@ function atualizarListaDaSala() {
     const item = document.createElement("li");
     item.style.setProperty("--c", jog.cor);
     item.textContent = jog.id === rede.meuId ? `${jog.nome} (você)` : jog.nome;
+    const meus = placar.find((p) => p.id === jog.id);
+    if (meus) {
+      const pts = document.createElement("span");
+      pts.className = "pontos";
+      pts.textContent = String(meus.pontos);
+      item.append(pts);
+    }
     // Lagartixa clica em lagartixa para ver onde a amiga está. Em caçador,
     // não: o servidor nem manda a inclinação da cabeça dele para quem está
     // viva, e uma câmera em cima de quem procura acabaria com a caçada.
@@ -499,7 +533,7 @@ function configurarRede() {
     tiles.garantir(jog);
     tiles.aplicarMidia(jog.id, jog.midia);
     malha?.conectar(jog.id);
-    painelChat.avisoDoSistema(`${jog.nome} entrou`);
+    recado(`${jog.nome} entrou`);
     atualizarListaDaSala();
   };
 
@@ -509,7 +543,7 @@ function configurarRede() {
     remotos.remover(id);
     tiles.remover(id);
     malha?.desconectar(id);
-    if (quem) painelChat.avisoDoSistema(`${quem.nome} saiu`);
+    if (quem) recado(`${quem.nome} saiu`);
     atualizarListaDaSala();
   };
 
@@ -520,7 +554,6 @@ function configurarRede() {
   rede.aoFala = (msg) => {
     if (msg.id === rede.meuId) balaoProprio?.dizer(msg.texto);
     else remotos.falar(msg.id, msg.texto);
-    painelChat.adicionar(msg, rede.meuId);
   };
 
   rede.aoSinal = (de, dados) => {
@@ -637,14 +670,33 @@ function configurarRede() {
     recado("Bateram na parede — seu silêncio foi por água abaixo.");
   };
 
-  rede.aoSensor = ({ id, p, dono }) => {
+  rede.aoArmadilha = ({ id, p, dono }) => {
     sensores?.largar(id, new THREE.Vector3(...p), dono === rede.meuId);
   };
-  rede.aoSensorFora = ({ id }) => sensores?.recolher(id);
-  rede.aoSensorApitou = ({ id, p }) => {
+  rede.aoArmadilhaFora = ({ id }) => sensores?.recolher(id);
+  rede.aoArmadilhaApitou = ({ id, p }) => {
     sensores?.apitar(id);
     if (p) assobios?.tocarEm(scene, new THREE.Vector3(...p), true);
-    recado("Um sensor apitou.");
+    recado("Uma armadilha apitou — algo se mexeu perto dela.");
+  };
+
+  rede.aoArmadilhaFechou = ({ id, p, alvo, duracaoMs }) => {
+    // A armadilha se gasta ao fechar: some da cena junto com o estalo.
+    sensores?.recolher(id);
+    const onde = new THREE.Vector3(...p);
+    const seguir = alvo === rede.meuId
+      ? () => jogador?.posicao ?? null
+      : () => remotos.mapa.get(alvo)?.raiz.position ?? null;
+    jaulas?.fechar(onde, seguir, duracaoMs);
+    explosoes.estourar(onde.clone().setY(onde.y + 0.2), "#9fd8ff", 0.7);
+    assobios?.tocarEm(scene, onde, alvo === rede.meuId);
+    if (alvo !== rede.meuId && !souLagartixa) recado("Sua armadilha fechou!");
+  };
+
+  // A contagem é do servidor: ele decide quanto sobra a cada aperto.
+  rede.aoPreso = ({ restaMs, totalMs }) => {
+    presoPelaRedeAte = performance.now() + restaMs;
+    presoTotalMs = totalMs || restaMs;
   };
 
   rede.aoRede = ({ de, alvo, duracaoMs }) => {
@@ -665,10 +717,7 @@ function configurarRede() {
         duracaoMs,
       );
     }
-    if (alvo === rede.meuId) {
-      presoPelaRedeAte = performance.now() + duracaoMs;
-      recado("Presa na rede!");
-    }
+    if (alvo === rede.meuId) recado("Presa na rede! Martele espaço para se soltar.");
   };
 
   rede.aoPo = ({ p, raio, duracaoMs }) => nuvens?.soltar(p, raio, duracaoMs);
@@ -695,12 +744,70 @@ function configurarRede() {
     if (de === rede.meuId) recado("Você se mexeu — o disjuntor não religou.");
   };
 
+  rede.aoPlacar = ({ lista }) => {
+    placar = lista ?? [];
+    if (!el("placar").hidden) mostrarPlacar(true);
+    atualizarListaDaSala();
+  };
+
+  rede.aoEscolherPapel = () => {
+    recado("Nova partida — escolha seu corpo de novo.");
+    voltarParaEscolha();
+  };
+
+  rede.aoBonus = ({ id, p, qual, duracaoMs }) => {
+    bonus?.nascer(id, new THREE.Vector3(...p), qual, duracaoMs);
+  };
+  rede.aoBonusFora = ({ id }) => bonus?.sumir(id);
+  rede.aoBonusPego = ({ id, de, qual }) => {
+    const onde = bonus?.ondeEsta(id)?.clone();
+    bonus?.sumir(id);
+    if (onde) {
+      explosoes.estourar(onde, qual === "armadura" ? "#ffd166" : "#c89bff", 0.9);
+    }
+    if (de !== rede.meuId && !souLagartixa) recado("Uma lagartixa pegou o bônus.");
+  };
+
+  rede.aoBonusMeu = ({ qual, efeito, duracaoMs }) => {
+    if (qual === "silencio") {
+      recado("Silêncio comprado — o próximo assobio demora mais.");
+    } else if (qual === "armadura") {
+      comEscudo = true;
+      recado("Armadura: o próximo tiro não te derruba.");
+    } else if (efeito === "encolher") {
+      jogador?.redimensionar(0.62);
+      recado("Encolheu! Cabe onde não cabia, mas ficou lenta.");
+    } else if (efeito === "crescer") {
+      jogador?.redimensionar(1.55);
+      recado("Cresceu! Mais rápida, e nenhum esconderijo antigo serve.");
+    } else {
+      jogador?.redimensionar(1);
+      recado("Voltou ao tamanho normal.");
+    }
+    atualizarEscudo();
+  };
+
+  rede.aoEscudoQuebrou = ({ alvo }) => {
+    const onde = alvo === rede.meuId ? jogador?.posicao : remotos.mapa.get(alvo)?.raiz.position;
+    if (onde) explosoes.estourar(onde.clone().setY(onde.y + 0.2), "#ffd166", 1.1);
+    if (alvo === rede.meuId) {
+      comEscudo = false;
+      atualizarEscudo();
+      recado("A armadura quebrou — o próximo tiro conta.");
+    }
+  };
+
   rede.aoLimparCampo = () => {
     sensores?.limpar();
     pegadas?.limpar();
     nuvens?.limpar();
     batidas?.limpar();
     redesVoando?.limpar();
+    jaulas?.limpar();
+    bonus?.limpar();
+    comEscudo = false;
+    jogador?.redimensionar(1);
+    atualizarEscudo();
     presoPelaRedeAte = 0;
     conjurandoAte = 0;
   };
@@ -716,9 +823,7 @@ function configurarRede() {
       remoto.eliminado = true;
       remoto.raiz.visible = false;
     }
-    painelChat?.avisoDoSistema(
-      por ? `${nome} foi encontrada por ${por}` : `${nome} foi encontrada`,
-    );
+    recado(por ? `${nome} foi encontrada por ${por}` : `${nome} foi encontrada`);
     if (id === rede.meuId) entrarEmEspectador();
   };
 
@@ -727,6 +832,9 @@ function configurarRede() {
     faseAte = performance.now() + (msg.restaMs ?? 0);
     if (msg.anfitriao !== undefined) anfitriao = msg.anfitriao;
     if (msg.podeIniciar !== undefined) podeIniciar = msg.podeIniciar;
+    // O servidor manda `null` fora do intervalo, o que apaga o resultado da
+    // rodada anterior antes de a próxima começar.
+    resultado = msg.resultado ?? null;
     aplicarFase();
   };
 
@@ -832,7 +940,7 @@ function configurarFala() {
   const campo = form.querySelector("input");
 
   addEventListener("keydown", (evento) => {
-    if (!andando || conversando || digitando || painelChat?.digitando) return;
+    if (!andando || conversando || digitando) return;
     if (evento.code !== "KeyY" || evento.repeat) return;
     evento.preventDefault();
     digitando = true;
@@ -952,7 +1060,6 @@ function configurarMidia() {
     });
   }
 
-  painelChat.aoEnviar = (texto) => rede.falar(texto);
 }
 
 // ------------------------------------------------------------ combate
@@ -999,7 +1106,7 @@ function configurarCombate() {
   // A lagartixa não atira: a vantagem dela é sumir, não trocar tiros.
   combate.podeAtirar = () =>
     andando && !souLagartixa && !abatido && !conversando && !digitando
-    && !painelChat?.digitando && !jogador?.sentado;
+    && !jogador?.sentado;
 
   combate.listarAlvos = alvosVisiveis;
 
@@ -1024,15 +1131,36 @@ function configurarCombate() {
     .then((m) => { _cloneUtil = m.clone; })
     .catch(() => {});
   prepararClone();
-  configurarInicio();
-  configurarDestravar();
-  configurarCamera();
-  configurarEspectador();
-  configurarOlhar();
+  // Estes ligam botões e teclas que não mudam com o papel; numa segunda
+  // partida eles já estão ligados, e chamá-los de novo só duplicaria tudo.
+  if (!_configuradoUmaVez) {
+    _configuradoUmaVez = true;
+    configurarInicio();
+    configurarDestravar();
+    configurarCamera();
+    configurarEspectador();
+    configurarOlhar();
+    configurarDebate();
+    configurarPlacar();
+    configurarPaineis();
+  }
   aplicarFase();
-  configurarPaineis();
+  aplicarPapelNosPaineis();
+  // Estes dependem do papel e são refeitos a cada entrada: a barra inteira
+  // muda de dono. Os ouvintes globais deles passam por `ouvirGlobal`.
   if (souLagartixa) configurarPoderes();
   else configurarPoderesCacador();
+
+  // Onde os bônus podem nascer. Só o primeiro da sala é aceito pelo servidor,
+  // então mandar de todo mundo não custa nada e cobre quem entrar primeiro.
+  if (grade) {
+    const pontos = procurarPontosDeBonus(colisor, grade);
+    if (pontos.length) {
+      rede.enviarPontosDeBonus(pontos.map((p) => [
+        +p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2),
+      ]));
+    }
+  }
   if (souLagartixa) {
     // A própria lagartixa ouve o próprio assobio: sem isso ela não tem como
     // saber que acabou de se entregar e que é hora de mudar de canto.
@@ -1102,7 +1230,7 @@ function montarPaleta() {
 
   addEventListener("keydown", (evento) => {
     if (evento.repeat || !poderes || !andando) return;
-    if (digitando || painelChat?.digitando || conversando) return;
+    if (digitando || conversando) return;
     if (evento.code === "KeyX") {
       copiarChao();
       return;
@@ -1166,9 +1294,9 @@ function montarPoses() {
     slots.set(pose.nome, botao);
   }
 
-  addEventListener("keydown", (evento) => {
+  ouvirGlobal("poderes:teclado", window, "keydown", (evento) => {
     if (evento.repeat || !poderes || !andando || modoPintura) return;
-    if (digitando || painelChat?.digitando || conversando) return;
+    if (digitando || conversando) return;
     if (evento.code !== "KeyT") return;
     const i = POSES.findIndex((p) => p.nome === poderes.pose);
     // Depois da última volta para "sem pose", senão não haveria como sair
@@ -1293,7 +1421,7 @@ function configurarCamera() {
   botao.addEventListener("click", girar);
   addEventListener("keydown", (evento) => {
     if (evento.code !== "KeyO" || evento.repeat) return;
-    if (digitando || painelChat?.digitando || conversando || modoPintura) return;
+    if (digitando || conversando || modoPintura) return;
     girar();
   });
   aplicarCamera();
@@ -1315,8 +1443,21 @@ function configurarCamera() {
  * corpo está mesmo preso.
  */
 const LIMBO = -5;            // abaixo disso, caiu para fora do mundo
-const PRESO_MS = 1600;       // insistindo em andar sem sair do lugar
-const PRESO_DISTANCIA = 0.08;
+/**
+ * Travado é NÃO PROGREDIR, e não "não se mexer".
+ *
+ * A primeira versão reancorava a cada 8 cm andados, então bastava se sacudir
+ * um pouco para o relógio zerar -- e é exatamente isso que acontece encostado
+ * numa escada ou num batente: a cápsula é empurrada de volta, escorrega de
+ * lado, e o corpo se mexe o tempo todo sem sair do lugar. O caso que mais
+ * precisava do botão era o único que nunca o mostrava.
+ *
+ * Agora a âncora só se move quando há progresso DE VERDADE: meio metro em
+ * linha reta desde onde se começou a insistir. Andando normalmente isso leva
+ * um quarto de segundo; empacado, nunca chega.
+ */
+const PRESO_MS = 2200;         // insistindo em andar sem progredir
+const PRESO_PROGRESSO = 0.5;   // metros que contam como "saiu do lugar"
 
 let _tentandoAndarDesde = 0;
 let _ondeTentou = null;
@@ -1354,10 +1495,10 @@ function vigiarTravamento(dt, entrada) {
     if (!_ondeTentou) {
       _ondeTentou = jogador.posicao.clone();
       _tentandoAndarDesde = agora;
-    } else if (jogador.posicao.distanceTo(_ondeTentou) > PRESO_DISTANCIA) {
-      // Andou: não está preso. Some o botão -- se destravou sozinho (um empurrão
-      // da física, um móvel que saiu do caminho), não faz sentido continuar
-      // oferecendo o conserto.
+    } else if (jogador.posicao.distanceTo(_ondeTentou) > PRESO_PROGRESSO) {
+      // Progrediu: não está preso. Some o botão -- se destravou sozinho (um
+      // empurrão da física, um móvel que saiu do caminho, um degrau vencido),
+      // não faz sentido continuar oferecendo o conserto.
       preso = false;
       _ondeTentou.copy(jogador.posicao);
       _tentandoAndarDesde = agora;
@@ -1380,7 +1521,7 @@ function configurarDestravar() {
   };
   el("destravar").addEventListener("click", pedir);
   addEventListener("keydown", (evento) => {
-    if (evento.code === "KeyK" && !evento.repeat && !digitando && !painelChat?.digitando) {
+    if (evento.code === "KeyK" && !evento.repeat && !digitando) {
       pedir();
     }
   });
@@ -1577,9 +1718,9 @@ function configurarPoderes() {
   };
   _refletirPoderes = refletir;
 
-  addEventListener("keydown", (evento) => {
+  ouvirGlobal("poderes:teclado", window, "keydown", (evento) => {
     if (evento.repeat || !poderes || !andando || modoPintura) return;
-    if (digitando || painelChat?.digitando || conversando) return;
+    if (digitando || conversando) return;
     const qual = porTecla[evento.code];
     if (qual) usar(qual);
     else if (evento.code === "Escape" && poderMirando) {
@@ -1590,7 +1731,7 @@ function configurarPoderes() {
   });
 
   // O clique no mundo entrega o ponto do assobio falso.
-  renderer.domElement.addEventListener("pointerdown", (evento) => {
+  ouvirGlobal("poderes:clique", renderer.domElement, "pointerdown", (evento) => {
     if (!poderMirando || evento.button !== 0 || modoPintura) return;
     const caixaTela = renderer.domElement.getBoundingClientRect();
     _ndcPoder.x = ((evento.clientX - caixaTela.left) / caixaTela.width) * 2 - 1;
@@ -1679,10 +1820,205 @@ function configurarPaineis() {
     atualizarDica();
   });
 
+}
+
+/** A parte dos painéis que muda com o papel, refeita a cada entrada. */
+function aplicarPapelNosPaineis() {
   // Só a lagartixa pinta e posa; para o caçador o botão nem existe.
+  const btnAcoes = el("btn-acoes");
   btnAcoes.hidden = !souLagartixa;
   btnAcoes.querySelector(".arte").innerHTML = ARTE_ACOES;
   btnAcoes.title = "Paleta: cores, pincel e poses";
+}
+
+/**
+ * Ouvintes globais que sobrevivem a uma reentrada na sala.
+ *
+ * Voltar à escolha de personagem roda `lobby.aoConfirmar` outra vez, e com ela
+ * os `configurar*`. `addEventListener` não substitui o anterior -- ele SOMA.
+ * Depois de duas partidas, uma tecla disparava o poder duas vezes, e o que é
+ * alternável (lanterna, esconder) ligava e desligava no mesmo aperto, dando a
+ * impressão de estar quebrado. Aqui cada ouvinte tem nome, e registrar de novo
+ * apaga o antigo.
+ */
+const _ouvintes = new Map();
+function ouvirGlobal(nome, alvo, evento, fn, opcoes) {
+  const antigo = _ouvintes.get(nome);
+  if (antigo) {
+    antigo.alvo.removeEventListener(antigo.evento, antigo.fn, antigo.opcoes);
+  }
+  alvo.addEventListener(evento, fn, opcoes);
+  _ouvintes.set(nome, { alvo, evento, fn, opcoes });
+}
+
+/** O que já foi ligado uma vez e não depende do papel escolhido. */
+let _configuradoUmaVez = false;
+
+/**
+ * A bolha da armadura.
+ *
+ * Ela precisa ser vista pelos dois lados: quem tem sabe que aguenta um tiro,
+ * e quem caça precisa entender por que o acerto não derrubou. Sem isso, um
+ * tiro que não faz nada parece defeito.
+ */
+let _bolhaDoEscudo = null;
+function atualizarEscudo() {
+  if (comEscudo && !_bolhaDoEscudo && jogador) {
+    _bolhaDoEscudo = new THREE.Mesh(
+      new THREE.SphereGeometry(0.3, 14, 10),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd166,
+        transparent: true,
+        opacity: 0.28,
+        depthWrite: false,
+      }),
+    );
+    jogador.raiz.add(_bolhaDoEscudo);
+    _bolhaDoEscudo.position.y = 0.13;
+  } else if (!comEscudo && _bolhaDoEscudo) {
+    _bolhaDoEscudo.parent?.remove(_bolhaDoEscudo);
+    _bolhaDoEscudo.material.dispose();
+    _bolhaDoEscudo = null;
+  }
+}
+
+// ------------------------------------------------------------ placar
+
+/**
+ * O placar da partida.
+ *
+ * A lagartixa marca assobiando, o que é o mesmo que dizer que ela marca se
+ * expondo: cada ponto é um convite que ela mandou. O caçador marca achando.
+ * Os pontos atravessam as rodadas -- só "nova partida" zera --, senão jogar
+ * cinco caçadas seguidas não somaria nada.
+ */
+let placar = [];
+/** O resultado da última rodada: {vencedor, motivo} ou null. */
+let resultado = null;
+/** Se o painel está aberto como fim de rodada (com faixa) ou como tabela. */
+let _placarComResultado = false;
+
+/**
+ * O painel, nas duas caras.
+ *
+ * `comResultado` é o fim de rodada: ganha a faixa de vitória ou derrota, o
+ * motivo e os botões de trocar de lado. Sem ele é só a tabela, chamada por
+ * configurações no meio da partida.
+ *
+ * A faixa é PESSOAL: quem venceu vê "Vitória", quem perdeu vê "Fim da rodada".
+ * Um cartaz dizendo "os caçadores venceram" obriga cada um a lembrar de que
+ * lado estava para saber se aquilo é bom.
+ */
+function mostrarPlacar(sim, comResultado = null) {
+  const caixa = el("placar");
+  if (sim === undefined) sim = caixa.hidden;
+  caixa.hidden = !sim;
+  if (!sim) {
+    _placarComResultado = false;
+    return;
+  }
+
+  // `null` significa "mantenha o modo em que já está".
+  //
+  // O placar é redesenhado toda vez que o servidor manda pontos novos, e essa
+  // chamada não sabe se o painel está aberto como fim de rodada ou como tabela
+  // de configurações. Sem lembrar disso, o primeiro ponto que chegasse depois
+  // do fim apagava a faixa de vitória e os botões de lado -- que é exatamente
+  // o que a tela existe para mostrar.
+  if (comResultado !== null) _placarComResultado = comResultado;
+
+  const meuLado = souLagartixa ? "lagartixas" : "cacadores";
+  const venci = Boolean(resultado) && resultado.vencedor === meuLado;
+  const mostrarFim = _placarComResultado && Boolean(resultado);
+
+  el("placar-titulo").textContent = mostrarFim
+    ? "Fim da rodada"
+    : "Placar da partida";
+  el("resultado").hidden = !mostrarFim;
+  el("placar-acoes").hidden = !mostrarFim;
+
+  if (mostrarFim) {
+    const faixa = el("resultado-faixa");
+    faixa.textContent = venci ? "Vitória" : "Derrota";
+    faixa.classList.toggle("venceu", venci);
+    faixa.classList.toggle("perdeu", !venci);
+    // O motivo vem do servidor e é o mesmo para todos: ele conta o que
+    // ACONTECEU, enquanto a faixa conta o que aquilo significa para quem lê.
+    el("resultado-motivo").textContent = resultado.motivo ?? "";
+    el("nova-partida-fim").hidden = anfitriao !== rede.meuId;
+  }
+
+  const lista = el("placar-lista");
+  lista.replaceChildren();
+  for (const linha of placar) {
+    const item = document.createElement("li");
+    if (linha.id === rede.meuId) item.classList.add("eu");
+
+    const quem = document.createElement("span");
+    quem.className = "quem";
+    quem.textContent = linha.id === rede.meuId ? `${linha.nome} (você)` : linha.nome;
+
+    const papel = document.createElement("span");
+    papel.className = "papel";
+    papel.textContent = linha.papel === "lagartixa" ? "lagartixa" : "caçador";
+
+    const pontos = document.createElement("span");
+    pontos.className = "pontos";
+    pontos.textContent = String(linha.pontos);
+
+    item.append(quem, papel, pontos);
+    lista.append(item);
+  }
+}
+
+/**
+ * Volta à escolha de personagem sem recarregar a página.
+ *
+ * Desmonta o corpo, fecha o soquete e devolve o lobby -- que é o mesmo caminho
+ * testado de sempre. Recarregar a página seria mais simples, mas obrigaria a
+ * digitar a senha da sala de novo a cada partida, e guardá-la em algum canto
+ * do navegador para evitar isso é exatamente o que não se faz com senha.
+ */
+function voltarParaEscolha() {
+  // O código antes de desconectar: depois disso ele some do objeto de rede.
+  const codigo = rede.sala?.codigo ?? null;
+  andando = false;
+  sairDoOlhar();
+  sairDeEspectador();
+
+  if (jogador) {
+    scene.remove(jogador.raiz);
+    jogador = null;
+  }
+  combate?.desativar();
+  cameraJogo.desativar();
+  if (document.pointerLockElement) document.exitPointerLock();
+
+  remotos.limpar();
+  naSala.clear();
+  malha?.fecharTudo?.();
+  malha = null;
+  rede.desconectar();
+
+  // Tudo que uma rodada deixou em cena vai junto.
+  sensores?.limpar();
+  pegadas?.limpar();
+  nuvens?.limpar();
+  batidas?.limpar();
+  redesVoando?.limpar();
+  jaulas?.limpar();
+  caudas?.limpar?.();
+  interruptores?.limpar?.();
+
+  elHud.hidden = true;
+  el("skills").hidden = true;
+  el("paleta").hidden = true;
+  el("olhar").hidden = true;
+  el("bateria").hidden = true;
+  el("placar").hidden = true;
+  el("lobby").hidden = false;
+  lobby.mostrar();
+  lobby.prepararEntrada(codigo);
 }
 
 // ------------------------------------------------------------ olhar
@@ -1771,7 +2107,7 @@ function mostrarOlhar() {
   const quem = el("olhar-quem");
   const alvo = remotos.mapa.get(olhando);
   quem.textContent = olhando === "livre"
-    ? "WASD voa, espaço sobe — preso a 14 m do seu corpo"
+    ? "WASD voa, espaço sobe — a corda vai a 60 m do seu corpo"
     : alvo
       ? `vendo ${alvo.nome} — WASD dá a volta nela; o mouse solta a mira`
       : "";
@@ -1983,6 +2319,27 @@ const _olharDir = new THREE.Vector3();
 const _olharSonda = new THREE.Raycaster();
 let _olharDesde = 0;
 
+/**
+ * A barra de quem está presa, e o martelar que a encurta.
+ *
+ * Ficar olhando quatro segundos de tela sem nada a fazer é castigo, não jogo.
+ * Debater-se dá o que fazer a quem foi pega -- e, como o piso é 40% do total,
+ * ela nunca sai na hora: o caçador que acertou continua tendo tempo de chegar,
+ * só que menos do que teria se ela desistisse.
+ *
+ * Quem conta os apertos é o SERVIDOR, que também os limita. Daqui só sai o
+ * aviso de que a tecla desceu.
+ */
+function atualizarDebate() {
+  const barra = el("debate");
+  const resta = presoPelaRedeAte - performance.now();
+  const ativa = resta > 0;
+  if (barra.hidden !== !ativa) barra.hidden = !ativa;
+  if (!ativa) return;
+  const k = presoTotalMs > 0 ? resta / presoTotalMs : 0;
+  barra.style.setProperty("--resta", `${Math.round(Math.min(1, k) * 100)}%`);
+}
+
 /** O medidor de bateria: só aparece com a lanterna existindo. */
 function atualizarBateria() {
   const caixa = el("bateria");
@@ -2020,20 +2377,34 @@ function atualizarConjuracao() {
  * cada segundo parado, então a jogada dominante era se enfiar num canto no
  * minuto de preparo e não se mexer mais.
  *
- * Metade destes poderes cobra imobilidade (`batida`, `sensor`) e a outra
+ * Metade destes poderes cobra imobilidade (`batida`, `armadilha`) e a outra
  * metade cobra movimento (`po`, `rede`): juntos, apertam dos dois lados, e
  * nenhum deles diz onde ela está. O `disjuntor` é a resposta ao apagão, e a
  * `lanterna` é a resposta ao escuro que sobrar.
  */
 const ESPERAS_CACADOR = {
-  lanterna: 0, batida: 8000, sensor: 18000, rede: 14000, disjuntor: 25000, po: 20000,
+  lanterna: 0, batida: 8000, armadilha: 18000, rede: 14000, disjuntor: 25000, po: 20000,
 };
 const ALCANCE_BATIDA = 8;
 const ALCANCE_REDE = 16;
 const ALCANCE_PO = 14;
-const ALCANCE_SENSOR = 4;
+const ALCANCE_ARMADILHA = 4;
 const CONJURACAO_MS = 1800;
 let _refletirCacador = () => {};
+
+/** Martelar espaço enquanto presa. Vale para a armadilha e para a rede. */
+function configurarDebate() {
+  addEventListener("keydown", (evento) => {
+    if (evento.code !== "Space" || evento.repeat) return;
+    if (digitando || conversando) return;
+    if (performance.now() >= presoPelaRedeAte) return;
+    // Enquanto presa, espaço não pula -- a entrada já vem zerada. Reaproveitar
+    // a mesma tecla evita ensinar uma tecla nova para um momento de dois
+    // segundos, e "se debater com espaço" é o que a mão faz sozinha.
+    evento.preventDefault();
+    rede.debater();
+  });
+}
 
 function configurarPoderesCacador() {
   lanterna = new Lanterna(camera);
@@ -2045,7 +2416,7 @@ function configurarPoderesCacador() {
   // L de Lanterna. O F já era o "Sentar", e dar a mesma tecla às duas coisas
   // fazia o caçador acender a lanterna e sentar no mesmo aperto.
   const teclas = {
-    lanterna: "L", batida: "Q", sensor: "E", rede: "R", disjuntor: "G", po: "V",
+    lanterna: "L", batida: "Q", armadilha: "E", rede: "R", disjuntor: "G", po: "V",
   };
   const porTecla = Object.fromEntries(
     Object.entries(teclas).map(([qual, t]) => [`Key${t}`, qual]),
@@ -2122,10 +2493,10 @@ function configurarPoderesCacador() {
       return;
     }
 
-    if (qual === "sensor") {
-      // Larga aos pés: não precisa de mira, e um sensor que exige apontar o
-      // chão no meio de uma perseguição não seria usado nunca.
-      rede.usarPoder("sensor", { p: paraLista(jogador.posicao) });
+    if (qual === "armadilha") {
+      // Larga aos pés: não precisa de mira, e uma armadilha que exige apontar
+      // o chão no meio de uma perseguição não seria usada nunca.
+      rede.usarPoder("armadilha", { p: paraLista(jogador.posicao) });
     } else if (qual === "rede") {
       const presa = lagartixaMaisProxima();
       if (!presa) {
@@ -2181,9 +2552,9 @@ function configurarPoderesCacador() {
   };
   _refletirCacador = refletir;
 
-  addEventListener("keydown", (evento) => {
+  ouvirGlobal("poderes:teclado", window, "keydown", (evento) => {
     if (evento.repeat || !andando || modoPintura) return;
-    if (digitando || painelChat?.digitando || conversando) return;
+    if (digitando || conversando) return;
     const qual = porTecla[evento.code];
     if (qual) usar(qual);
     else if (evento.code === "Escape" && poderMirando) {
@@ -2194,7 +2565,7 @@ function configurarPoderesCacador() {
   });
 
   // O clique no mundo entrega o ponto do pó.
-  renderer.domElement.addEventListener("pointerdown", (evento) => {
+  ouvirGlobal("poderes:clique", renderer.domElement, "pointerdown", (evento) => {
     if (poderMirando !== "po" || evento.button !== 0 || modoPintura) return;
     const caixaTela = renderer.domElement.getBoundingClientRect();
     _ndcPoder.x = ((evento.clientX - caixaTela.left) / caixaTela.width) * 2 - 1;
@@ -2359,6 +2730,44 @@ function mostrarQuemAssiste() {
     : "nenhum caçador na sala";
 }
 
+/**
+ * Volta à escolha já com um lado marcado.
+ *
+ * "Trocar de lado" preenche o oposto do que se estava jogando: é um clique só
+ * para quem quer experimentar o outro papel, que é o pedido mais comum depois
+ * de uma rodada. "Escolher time" não marca nada e deixa a escolha aberta.
+ */
+function voltarParaEscolhaComPapel(papel) {
+  voltarParaEscolha();
+  if (papel) lobby.prepararPapel(papel);
+}
+
+function configurarPlacar() {
+  el("nova-partida").addEventListener("click", () => {
+    if (!confirm("Zerar o placar e mandar todo mundo escolher o corpo de novo?")) return;
+    rede.novaPartida();
+  });
+  el("fechar-placar").addEventListener("click", () => mostrarPlacar(false));
+  el("continuar-assim").addEventListener("click", () => mostrarPlacar(false));
+  el("trocar-lado").addEventListener("click", () => {
+    mostrarPlacar(false);
+    voltarParaEscolhaComPapel(souLagartixa ? "pessoa" : "lagartixa");
+  });
+  el("escolher-time").addEventListener("click", () => {
+    mostrarPlacar(false);
+    voltarParaEscolhaComPapel(null);
+  });
+  el("nova-partida-fim").addEventListener("click", () => {
+    mostrarPlacar(false);
+    rede.novaPartida();
+  });
+  // Por configurações abre sempre como tabela: no meio de uma partida, ver a
+  // faixa "Derrota" da rodada passada ao consultar o placar seria confuso.
+  el("btn-placar").addEventListener("click", () => {
+    mostrarPlacar(el("placar").hidden, false);
+  });
+}
+
 function configurarEspectador() {
   el("ver-livre").addEventListener("click", () => trocarModoEspectador("livre"));
   el("ver-cacador").addEventListener("click", () => trocarModoEspectador("cacador"));
@@ -2444,10 +2853,16 @@ function aplicarFase() {
       mostrarCaidas();
     }
   }
+  // O placar sobe sozinho quando a caçada ACABA de terminar. A comparação tem
+  // de vir antes de `_faseAnterior` ser atualizado, senão os dois já são iguais
+  // e a condição nunca é verdadeira -- foi o que aconteceu na primeira versão.
+  const virouIntervalo = faseAtual === "intervalo" && _faseAnterior !== "intervalo";
   _faseAnterior = faseAtual;
   // O painel de olhar vem e vai com a rodada: reiniciar devolve a lagartixa
   // ao corpo, senão ela renasceria com a câmera parada na amiga.
   if (faseAtual === "espera" || faseAtual === "intervalo") sairDoOlhar();
+  if (virouIntervalo) mostrarPlacar(true, true);
+  if (faseAtual === "caca") mostrarPlacar(false);
   mostrarOlhar();
   // A lista da sala é desenhada quando alguém entra -- e nessa hora ainda não
   // há rodada, então nenhuma amiga saía clicável. Redesenhar na troca de fase
@@ -2476,6 +2891,10 @@ function aplicarFase() {
   el("pular-preparo").hidden = !(souDono && faseAtual === "preparo");
   el("reiniciar-rodada").hidden =
     !(souDono && (faseAtual === "caca" || faseAtual === "intervalo"));
+  // "Nova partida" some durante a caçada e o preparo: trocar de papel no meio
+  // delas tiraria de cena justamente a lagartixa que os outros procuram.
+  el("nova-partida").hidden =
+    !(souDono && faseAtual !== "caca" && faseAtual !== "preparo");
 
   const escondendo = faseAtual === "preparo" || faseAtual === "espera";
   for (const remoto of remotos?.mapa.values() ?? []) {
@@ -2599,7 +3018,7 @@ function configurarAtelie() {
 
   addEventListener("keydown", (evento) => {
     if (evento.repeat || !poderes || !andando) return;
-    if (digitando || painelChat?.digitando || conversando) return;
+    if (digitando || conversando) return;
     if (evento.code === "KeyP") abrirAtelie(!modoPintura);
     else if (evento.code === "Escape" && modoPintura) abrirAtelie(false);
   });
@@ -2938,7 +3357,7 @@ function animar(agora) {
     atualizarEspectador(dt);
   } else if (andando && jogador) {
     const congelado =
-      conversando || digitando || painelChat?.digitando || abatido || modoPintura
+      conversando || digitando || abatido || modoPintura
       // Olhando de fora, o corpo fica onde está: o WASD é da câmera agora, e
       // sem isto a lagartixa sairia andando às cegas enquanto se olha a amiga.
       || olhando !== null
@@ -2959,6 +3378,21 @@ function animar(agora) {
       jogador.velCaminhada = CORPO_LAGARTIXA.velCaminhada * k;
       jogador.velCorrida = CORPO_LAGARTIXA.velCorrida * k;
     }
+    // Agachar: a lente desce até quase o chão.
+    //
+    // A cápsula continua do tamanho de sempre -- o que muda é a ALTURA DOS
+    // OLHOS. Encolher o corpo deixaria o caçador entrar em vãos onde ele
+    // depois emperra, e o pedido era enxergar embaixo do móvel, não caber
+    // debaixo dele. Andar agachado custa velocidade, senão seria a postura
+    // padrão de quem procura.
+    if (!souLagartixa && cameraJogo.primeiraPessoa) {
+      const querAgachar = entrada.agachado && !conversando;
+      agachamento += (Number(querAgachar) - agachamento) * Math.min(1, dt * 11);
+      cameraJogo.alturaDosOlhos = ALTURA_OLHOS_CACADOR - agachamento * 0.95;
+      jogador.velCaminhada = CORPO_PESSOA.velCaminhada * (1 - agachamento * 0.55);
+      jogador.velCorrida = CORPO_PESSOA.velCorrida * (1 - agachamento * 0.62);
+    }
+
     jogador.atualizar(dt, entrada, camera);
     jogador.alvoDaCamera(_alvo);
 
@@ -2967,7 +3401,7 @@ function animar(agora) {
       // o aviso diz como entrar no modo confortável.
       const aviso = el("aviso-ponteiro");
       aviso.hidden =
-        cameraJogo.travada || conversando || digitando || painelChat?.digitando;
+        cameraJogo.travada || conversando || digitando;
       if (!aviso.hidden) {
         if (!cameraJogo.capturaIndisponivel) {
           aviso.querySelector("kbd").textContent = "clique";
@@ -3041,25 +3475,42 @@ function animar(agora) {
       el("aviso-interagir").hidden = true;
     } else if (primeiraPessoa) {
       cameraJogo.atualizarPrimeiraPessoa(dt, jogador.posicao);
-      el("aviso-interagir").hidden = !perto || digitando || painelChat?.digitando;
+      el("aviso-interagir").hidden = !perto || digitando;
       atualizarBotaoDeSentar();
     } else {
       if (combate.mirando) cameraJogo.enquadrarMira(dt, _alvo);
       else cameraJogo.atualizar(dt, _alvo);
-      el("aviso-interagir").hidden = !perto || digitando || painelChat?.digitando;
+      el("aviso-interagir").hidden = !perto || digitando;
       atualizarBotaoDeSentar();
     }
     balaoProprio?.atualizar(camera);
     marcador?.atualizar();
 
     // Poderes de quem caça: os efeitos rodam para os dois lados (a lagartixa
-    // precisa ver a nuvem e o sensor), mas a lanterna e a barra só existem de
+    // precisa ver a nuvem e a armadilha), mas a lanterna e a barra só existem de
     // um lado.
+    bonus?.atualizar(dt);
+    // Pegar é ENCOSTAR: não há tecla. O bônus já custa o caminho até ele, e
+    // pedir um aperto por cima disso só criaria uma chance de errar.
+    if (souLagartixa && !espectando && !abatido && faseAtual === "caca") {
+      for (const [id] of bonus.vivos) {
+        const onde = bonus.ondeEsta(id);
+        if (onde && onde.distanceTo(jogador.posicao) < 1.2) {
+          if (_ultimoBonusPedido !== id) {
+            _ultimoBonusPedido = id;
+            rede.pegarBonus(id);
+          }
+          break;
+        }
+      }
+    }
     batidas?.atualizar(dt);
     redesVoando?.atualizar(dt, camera);
+    jaulas?.atualizar(dt);
     sensores?.atualizar(dt);
     pegadas?.atualizar();
     nuvens?.atualizar(dt);
+    atualizarDebate();
     if (lanterna) {
       lanterna.atualizar(dt, !escuridao?.escuro);
       atualizarBateria();
@@ -3132,6 +3583,9 @@ if (import.meta.env.DEV) {
     get pegadas() { return pegadas; },
     get nuvens() { return nuvens; },
     get redesVoando() { return redesVoando; },
+    get jaulas() { return jaulas; },
+    get bonus() { return bonus; },
+    get escudo() { return comEscudo; },
     get espectador() { return { espectando, modoEspectador, cacadorAssistido, caidas }; },
     THREE,
     get escritorio() { return escritorio; },
@@ -3139,7 +3593,6 @@ if (import.meta.env.DEV) {
     get colisor() { return colisor; },
     get malha() { return malha; },
     get tiles() { return tiles; },
-    get painelChat() { return painelChat; },
     get jogador() { return jogador; },
     get npc() { return npc; },
     get chat() { return chat; },

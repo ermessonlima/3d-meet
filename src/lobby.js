@@ -121,6 +121,32 @@ export class Lobby {
     }
   }
 
+  /**
+   * Volta à escolha de personagem já apontando para uma sala.
+   *
+   * Usado pela "nova partida": o código não é segredo (ele vai no link de
+   * convite), então prefixá-lo poupa digitação. A SENHA não vem junto de
+   * propósito -- guardá-la em qualquer canto do navegador para evitar um
+   * campo a preencher é exatamente o que não se faz com senha.
+   */
+  prepararEntrada(codigo) {
+    if (!codigo) return;
+    this.elCodigo.value = String(codigo).toUpperCase().slice(0, 12);
+    this._trocarAba("entrar");
+  }
+
+  /**
+   * Deixa um papel já marcado na volta à escolha.
+   *
+   * Usado pelo "trocar de lado" da tela de fim: depois de uma rodada, querer
+   * experimentar o outro papel é o pedido mais comum, e fazer disso um clique
+   * em vez de dois é o que separa "trocar de lado" de "escolher time".
+   */
+  prepararPapel(papel) {
+    const botao = this.el.querySelector(`[data-papel="${papel}"]`);
+    if (botao) botao.click();
+  }
+
   _trocarAba(qual) {
     for (const botao of this.el.querySelectorAll("[data-aba]")) {
       botao.setAttribute("aria-selected", String(botao.dataset.aba === qual));

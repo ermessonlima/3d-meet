@@ -213,6 +213,11 @@
         <ul id="sala-jogadores"></ul>
       </section>
 
+      <button type="button" id="btn-placar" class="linha-botao">
+        <i data-icone="pessoas" data-tamanho="13"></i>
+        <span>Ver o placar da partida</span>
+      </button>
+
       <label class="opcao">
         <input type="checkbox" id="opt-comandos" />
         <span>Mostrar comandos na tela</span>
@@ -242,21 +247,6 @@
       <video autoplay playsinline muted></video>
     </div>
 
-    <!-- -------------------------------------------------- chat da sala -->
-
-    <aside id="chat-sala" hidden aria-label="Chat da sala">
-      <header>
-        <i data-icone="chat" data-tamanho="15"></i>
-        <span>Chat da sala</span>
-      </header>
-      <div class="log"></div>
-      <form autocomplete="off">
-        <input type="text" maxlength="200" placeholder="Mensagem para a sala" aria-label="Mensagem" />
-        <button type="submit" aria-label="Enviar">
-          <i data-icone="enviar" data-tamanho="15"></i>
-        </button>
-      </form>
-    </aside>
 
     <!--
       Microfone, câmera e tela estão OCULTOS, não removidos: a mídia inteira
@@ -280,11 +270,6 @@
       <button type="button" id="btn-config" aria-pressed="false" title="Configurações">
         <i class="icone" data-icone="config" data-tamanho="17"></i>
         <span class="rotulo">Sala</span>
-      </button>
-      <button type="button" id="alternar-chat" aria-pressed="false" title="Chat da sala">
-        <i class="icone" data-icone="chat" data-tamanho="17"></i>
-        <span class="rotulo">Chat</span>
-        <span class="nao-lidas" hidden></span>
       </button>
     </div>
 
@@ -317,6 +302,10 @@
         <i data-icone="reiniciar" data-tamanho="14"></i>
         <span>Reiniciar</span>
       </button>
+      <button type="button" id="nova-partida" hidden>
+        <i data-icone="pessoas" data-tamanho="13"></i>
+        <span>Nova partida</span>
+      </button>
     </div>
 
     <!-- Quem caiu na rodada. Fica na tela até a rodada seguinte. -->
@@ -337,6 +326,53 @@
       <span class="numero">100%</span>
     </div>
 
+    <!-- Presa: a barra de se debater. Só quem está presa vê. -->
+    <!-- Placar da partida. Aparece no intervalo e pelo botão em configurações. -->
+    <div id="placar" hidden>
+      <!--
+        Duas telas no mesmo painel. Aberto pelo fim da rodada, ele ganha a faixa
+        de resultado e os botões de escolher lado; aberto por configurações, é
+        só o placar. Separar em dois elementos duplicaria a lista inteira.
+      -->
+      <div class="cabeca">
+        <strong id="placar-titulo">Placar da partida</strong>
+        <button type="button" id="fechar-placar" aria-label="Fechar">×</button>
+      </div>
+
+      <div id="resultado" hidden>
+        <span class="faixa" id="resultado-faixa">Vitória</span>
+        <p class="motivo" id="resultado-motivo"></p>
+      </div>
+
+      <ol id="placar-lista"></ol>
+
+      <p class="ajuda">
+        A lagartixa marca <strong>1</strong> a cada assobio — e o assobio é o que a
+        entrega. O caçador marca <strong>15</strong> por lagartixa encontrada.
+      </p>
+
+      <div id="placar-acoes" hidden>
+        <button type="button" id="trocar-lado" class="acao">
+          <i data-icone="pessoas" data-tamanho="14"></i>
+          <span>Trocar de lado</span>
+        </button>
+        <button type="button" id="escolher-time" class="acao">
+          <i data-icone="config" data-tamanho="14"></i>
+          <span>Escolher time</span>
+        </button>
+        <button type="button" id="nova-partida-fim" class="acao forte" hidden>
+          <i data-icone="reiniciar" data-tamanho="14"></i>
+          <span>Nova partida</span>
+        </button>
+        <button type="button" id="continuar-assim" class="acao vazado">Continuar assim</button>
+      </div>
+    </div>
+
+    <div id="debate" hidden>
+      <span class="rotulo">presa — martele <kbd>espaço</kbd></span>
+      <span class="trilho"><span class="nivel"></span></span>
+    </div>
+
     <div id="conjuracao" hidden>
       <span class="rotulo">religando o disjuntor…</span>
       <span class="trilho"><span class="nivel"></span></span>
@@ -352,7 +388,7 @@
           <i data-icone="camera-livre" data-tamanho="15"></i>
           <span>Olhar</span>
         </button>
-        <button type="button" id="btn-olhar-livre" aria-pressed="false" title="Câmera livre, presa a 14 m do seu corpo">livre</button>
+        <button type="button" id="btn-olhar-livre" aria-pressed="false" title="Câmera livre, com corda de 60 m até o seu corpo">livre</button>
         <button type="button" id="btn-amigas" title="Ver onde as outras lagartixas estão">amigas</button>
       </div>
       <div id="olhar-amigas"></div>

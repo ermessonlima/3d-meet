@@ -312,10 +312,10 @@ export const ARTE_CACADOR = {
       </svg>`,
   },
 
-  sensor: {
-    nome: "Sensor de movimento",
+  armadilha: {
+    nome: "Armadilha",
     cor: "#6ea8fe",
-    resumo: "Larga no chão e apita se algo se mexer perto. Dois de cada vez.",
+    resumo: "Apita se algo se mexer a 6 m, e FECHA em quem encostar. Some ao disparar; duas de cada vez.",
     svg: `
       <svg viewBox="0 0 64 64" aria-hidden="true">
         <!-- base no chão -->
@@ -327,6 +327,9 @@ export const ARTE_CACADOR = {
         <!-- olho -->
         <circle cx="32" cy="36" r="5.6" fill="#0b0e14"/>
         <circle cx="32" cy="36" r="3" fill="#6ea8fe"/>
+        <!-- as garras, abertas dos dois lados: é o que diz "isto prende" -->
+        <path d="M20 46 L10 34 L6 38 L14 50 Z" fill="#8fc0ff"/>
+        <path d="M44 46 L54 34 L58 38 L50 50 Z" fill="#8fc0ff"/>
         <!-- leque de detecção -->
         <path d="M32 26 L12 10 L52 10 Z" fill="#6ea8fe" opacity="0.18"/>
         <path d="M24 18 A 12 12 0 0 1 40 18" stroke="#6ea8fe" stroke-width="2.4"

@@ -106,6 +106,10 @@ export const PALETA = [
 
 // Medidas do bicho, usadas na cápsula de colisão e na câmera.
 export const CORPO = {
+  // A lagartixa recebe pouco: ela escala parede, então um degrau já é
+  // superfície para ela. Um valor de gente a faria "pular" obstáculos que
+  // deveriam custar uma escalada.
+  alturaDoDegrau: 0.06,
   raio: 0.13,
   altura: 0.26,
   velCaminhada: 3.1,   // pequena, mas rápida: é a vantagem dela

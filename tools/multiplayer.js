@@ -25,9 +25,6 @@ const PING_MS = 30_000;
 // isso acontece com todos ao mesmo tempo; com o limite antigo de 45 a conexão
 // era cortada por "flood" justamente na hora de entrar.
 const MSG_POR_SEGUNDO = 200;
-const HISTORICO_CHAT = 50;           // mensagens guardadas por sala
-const FALA_INTERVALO_MS = 700;
-const FALA_MAX = 200;
 const TENTATIVAS_POR_MINUTO = 12;    // por IP, contra força bruta de senha
 // Teto de mensagem. O comum vale para todo o protocolo; o da textura é a
 // exceção da pintura à mão, que viaja como PNG em base64.
@@ -63,6 +60,9 @@ const ASSOBIO_ALCANCE = 14;   // metros; além disso o caçador não recebe nada
 const REBOBINAR_MS = 10_000;      // o quão atrás no tempo se volta
 const REBOBINAR_ESPERA = 15_000;  // entre um uso e outro
 const REBOBINAR_APOS_DANO = 5_000;
+const FALA_INTERVALO_MS = 700;       // entre um balão e o seguinte
+const FALA_MAX = 200;                // caracteres por balão
+
 const HISTORICO_MS = 16_000;
 
 /**
@@ -104,7 +104,7 @@ const PODERES = {
  */
 const PODERES_CACADOR = {
   batida:    { espera: 8_000,  alcance: 8 },
-  sensor:    { espera: 18_000, maximo: 2, raio: 6, alcance: 4 },
+  armadilha: { espera: 18_000, maximo: 2, raio: 6, gatilho: 1.1, alcance: 4 },
   rede:      { espera: 14_000, alcance: 16 },
   disjuntor: { espera: 25_000, conjuracao: 1_800 },
   po:        { espera: 20_000, alcance: 14, raio: 5 },
@@ -116,7 +116,111 @@ const PINGO_MS = 6_000;           // rastro de tinta depois de levar um tiro
 const MARCA_INTERVALO_MS = 320;   // uma pegada a cada tanto, por lagartixa
 const MARCA_PASSO = 0.25;         // e só se ela tiver andado isto
 const BATIDA_ALCANCE_SOM = 20;    // além disto ninguém ouve a batida
-const SENSOR_INTERVALO_MS = 1_400;// para um sensor não metralhar apitos
+const SENSOR_INTERVALO_MS = 1_400;// para uma armadilha não metralhar apitos
+const ARMADILHA_PRESO_MS = 4_000; // quanto ela segura, antes de se debater
+/**
+ * Debater-se: cada aperto alivia um tanto, com piso.
+ *
+ * O piso é fração da duração, não um número fixo: assim a mesma regra serve à
+ * armadilha (4 s, piso de 1,6 s) e à rede (1,5 s, piso de 0,6 s) sem inventar
+ * um caso especial para cada uma.
+ *
+ * A contagem é do SERVIDOR e vem limitada. Um cliente adulterado mandando mil
+ * apertos por segundo se soltaria na hora, e o poder viraria enfeite -- o
+ * limite faz o teclado de todo mundo valer o mesmo.
+ */
+const DEBATE_ALIVIO_MS = 180;
+const DEBATE_INTERVALO_MS = 120;  // ~8 apertos por segundo, no máximo
+const DEBATE_PISO = 0.4;          // não dá para escapar antes disto do total
+
+/**
+ * Pontos.
+ *
+ * A lagartixa marca ASSOBIANDO -- e é uma ideia melhor do que parece, porque
+ * o assobio é justamente o que a entrega. Ficar viva e perto do perigo passa a
+ * valer mais do que se enfiar num canto: cada ponto que ela ganha é um convite
+ * que ela mandou. O silêncio comprado com imobilidade continua funcionando,
+ * só que agora ele custa placar.
+ *
+ * O caçador marca ELIMINANDO. A escala sai da aritmética da rodada: cinco
+ * minutos dão umas 20 a 30 chances de assobio a quem sobrevive inteira, então
+ * uma eliminação vale 15 para uma caçada de duas lagartixas empatar com uma
+ * fuga perfeita. Não é exato, e nem deveria ser -- é para os dois lados terem
+ * o que perseguir.
+ */
+/**
+ * Bônus: o PUXÃO que tira a lagartixa do canto.
+ *
+ * Até aqui tudo que a fazia se mexer era castigo -- batida, armadilha, pó. E
+ * castigo funciona menos que recompensa, porque a conta dela continuava
+ * fechando: parada e escondida ela COMPRA silêncio, 0,9 s a cada segundo
+ * parado, até 9 s. Ficar quieta era pago pelo próprio jogo.
+ *
+ * Então o bônus paga na MESMA MOEDA. O de silêncio adia o próximo assobio, e
+ * com isso "andar agora para ficar escondida depois" vira jogada em vez de
+ * sacrifício. As outras duas mexem no corpo dela, o que a obriga a um segundo
+ * movimento: quem encolheu tem de achar esconderijo novo, quem cresceu perdeu
+ * o que tinha.
+ *
+ * Quatro regras seguram o resto, e importam mais que a lista:
+ *  - nascem em lugar EXPOSTO, senão premiariam o canto que se quer quebrar;
+ *  - os DOIS lados veem, senão viram dinheiro grátis em vez de disputa;
+ *  - anunciam-se com assobio, dizendo onde a decisão vai acontecer;
+ *  - expiram, o que cobra dos dois: ela não adia, e quem montar guarda perdeu
+ *    o tempo se ela não for.
+ *
+ * O que eles NUNCA são: requisito para vencer. Sobreviver aos cinco minutos
+ * continua bastando -- se coletar virasse obrigação, esconder-se deixaria de
+ * ser viável e o jogo trocaria de gênero.
+ */
+/**
+ * Eles nascem TODOS DE UMA VEZ, e não um a um.
+ *
+ * A primeira versão soltava um bônus por vez a cada 26 s, e o primeiro teste
+ * mostrou o problema na hora: ele nasceu a 22 m da lagartixa, e 20 s não dão
+ * para atravessar o escritório. Um bônus longe demais não é decisão, é
+ * paisagem -- ela olha, calcula que não dá, e continua exatamente onde estava.
+ *
+ * Em onda de três, um deles quase sempre está perto o bastante para valer, e
+ * ela passa a ESCOLHER qual troca quer em vez de aceitar ou recusar a única
+ * oferta. Dá até para pegar dois, se correr -- e correr é o ponto.
+ */
+const BONUS_POR_ONDA = 3;
+const BONUS_INTERVALO_MS = 26_000;   // entre o fim de uma onda e a próxima
+const BONUS_VIDA_MS = 30_000;        // quanto a onda espera antes de sumir
+const BONUS_ALCANCE = 1.4;           // o quão perto é preciso chegar
+const BONUS_PONTOS = 5;
+const BONUS_SILENCIO_MS = 9_000;     // o quanto o assobio se afasta
+const BONUS_TAMANHO_MS = 25_000;     // quanto dura encolher ou crescer
+const ESCALA_PEQUENA = 0.62;
+const ESCALA_GRANDE = 1.55;
+const TIPOS_DE_BONUS = ["silencio", "surpresa", "armadura"];
+
+/**
+ * O esconderijo estraga.
+ *
+ * Não expulsa ninguém: só faz o canto perfeito ir ficando menos perfeito. É o
+ * empurrão suave que acompanha o puxão dos bônus -- sem ele, quem decidir
+ * ignorar os bônus continua com a mesma vida boa de antes.
+ */
+const MOFO_RAIO = 3;                 // metros que contam como "o mesmo canto"
+const MOFO_MS = 45_000;              // depois disto, o assobio vaza mais longe
+const MOFO_ALCANCE_EXTRA = 4;
+
+/**
+ * A rede se fecha.
+ *
+ * Havia canto no escritório de onde era inviável ser achada -- e cinco minutos
+ * procurando sem nenhuma chance não é tensão, é tédio. Em vez de dar mais um
+ * aparelho ao caçador, o próprio assobio aperta: ele vaza mais longe conforme
+ * a caçada avança e sai mais vezes no terço final. O começo continua igual,
+ * que é quando esconder-se tem de valer.
+ */
+const CERCO_ALCANCE_EXTRA = 8;       // somados ao longo da caçada inteira
+const CERCO_PRESSA = 0.45;           // encurta até 45% do intervalo, no fim
+
+const PONTOS_ASSOBIO = 1;
+const PONTOS_ELIMINACAO = 15;
 const ESCURO_MS = 20_000;
 const CAUDA_MS = 30_000;
 // 5 s: os primeiros ~2,2 s cegam de verdade, o resto escorre.
@@ -284,7 +388,6 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
       yaw: 0,
       anim: "Parado",
       ultimoEstadoEm: 0,
-      ultimaFalaEm: 0,
       midia: { camera: false, microfone: false, tela: false },
       escondido: false,
       pintura: "#5f9e4a",
@@ -297,19 +400,31 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
       frente: null,
       // Rastro de posições, para o `destravar` ter para onde voltar.
       historico: [],
+      ultimaFalaEm: 0,
       ultimoDanoEm: 0,
       ultimoDestravarEm: 0,
       pulaChecagemDeVelocidade: false,
       // Quando cada poder poderá ser usado de novo, e quanto silêncio a
       // lagartixa acumulou parada.
       esperaDePoder: {},
+      // Placar da PARTIDA, não da rodada: só "nova partida" zera.
+      pontos: 0,
       silencioMs: 0,
       paradaDesde: 0,
       // Poderes do caçador: sensores largados, e o disjuntor em conjuração.
       sensores: [],
       conjurandoAte: 0,
       // Da lagartixa: presa pela rede, e pingando tinta depois de um tiro.
+      // Bônus: escudo, tamanho e o canto onde ela está mofando.
+      escudo: false,
+      escala: 1,
+      escalaAte: 0,
+      cantoDesde: 0,
+      canto: null,
       presoAte: 0,
+      presoDesde: 0,
+      presoTotal: 0,
+      ultimoDebateEm: 0,
       pingandoAte: 0,
       ultimaMarcaEm: 0,
       posDaMarca: null,
@@ -378,9 +493,6 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
             jogadores: [...sala.jogadores.values()]
               .filter((j) => j.id !== estado.id)
               .map(publico),
-            // Quem chega vê o que já foi dito. Sem isto, entrar numa conversa
-            // em andamento é entrar numa sala muda.
-            historico: sala.historico ?? [],
             // Quem chega no meio precisa saber em que pé está a rodada; sem
             // isto o cronômetro só apareceria na virada de fase seguinte.
             fase: sala.fase,
@@ -392,6 +504,11 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
           // Depois do "entrou": o papel de quem chegou pode ser justamente o
           // que faltava para o botão acender.
           anunciarSala(sala);
+          // E o placar vai junto, para todos. Quem chega precisa dele para
+          // saber onde a partida está; quem já estava precisa porque uma
+          // reentrada pode ter TROCADO o papel de alguém, e o placar é onde o
+          // papel de cada um aparece escrito.
+          transmitir(sala, { tipo: "placar", lista: placarDe(sala) });
         } catch (erro) {
           if (erro instanceof ErroDeSala) {
             return enviar(ws, { tipo: "erro", mensagem: erro.message });
@@ -444,6 +561,16 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
           estado.ultimoMovimentoEm = agora;
         }
 
+        // Mofo: quanto tempo ela está no MESMO canto, e não quanto tempo está
+        // imóvel. Andar em círculos dentro de três metros continua sendo o
+        // mesmo esconderijo, e é isso que o alcance extra cobra.
+        if (estado.perfil?.papel === "lagartixa") {
+          if (!estado.canto || distancia(p, estado.canto) > MOFO_RAIO) {
+            estado.canto = [p[0], p[1], p[2]];
+            estado.cantoDesde = agora;
+          }
+        }
+
         // Presa pela rede: a posição não avança, decidido AQUI.
         //
         // Pedir ao cliente que congele funcionaria para quem joga limpo, e um
@@ -479,30 +606,6 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
       }
 
       // ---- chat entre jogadores
-      if (msg.tipo === "fala") {
-        const agora = Date.now();
-        if (agora - estado.ultimaFalaEm < FALA_INTERVALO_MS) return;
-        const texto = limpar(msg.texto, FALA_MAX);
-        if (!texto) return;
-        estado.ultimaFalaEm = agora;
-
-        const fala = {
-          tipo: "fala",
-          id: estado.id,
-          nome: estado.perfil.nome,
-          cor: estado.perfil.cor,
-          texto,
-          em: agora,
-        };
-
-        const sala = estado.sala;
-        sala.historico = sala.historico ?? [];
-        sala.historico.push(fala);
-        if (sala.historico.length > HISTORICO_CHAT) sala.historico.shift();
-
-        transmitir(sala, fala);
-        return;
-      }
 
       // ---- estado de câmera/microfone/tela
       if (msg.tipo === "midia") {
@@ -545,6 +648,25 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
       // Mesmas guardas do "começar": só o anfitrião, e só quando a ação faz
       // sentido na fase atual. Um cliente qualquer mandando "reiniciar" no
       // meio da caçada apagaria a partida dos outros.
+      if (msg.tipo === "nova-partida") {
+        if (!estado.sala) return;
+        const sala = estado.sala;
+        if (sala.anfitriao !== estado.id) {
+          return enviar(ws, {
+            tipo: "recado",
+            texto: "Só quem abriu a sala comanda a rodada.",
+          });
+        }
+        // Zera o placar e devolve todo mundo à escolha de personagem. É a
+        // ÚNICA coisa que apaga pontos: reiniciar a caçada não apaga, senão
+        // não haveria como jogar várias rodadas seguidas valendo alguma coisa.
+        for (const j of sala.jogadores.values()) j.pontos = 0;
+        trocarFase(sala, "espera", Date.now());
+        transmitir(sala, { tipo: "placar", lista: placarDe(sala) });
+        transmitir(sala, { tipo: "escolher-papel" });
+        return;
+      }
+
       if (msg.tipo === "pular" || msg.tipo === "reiniciar") {
         if (!estado.sala) return;
         const sala = estado.sala;
@@ -617,6 +739,74 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
       // Tudo validado aqui: papel, fase, vida, espera e alcance. Um cliente
       // adulterado poderia cuspir de 40 m ou soltar assobio falso sem parar;
       // o que o navegador manda é um PEDIDO, não um fato.
+      // ---- os lugares onde um bônus pode nascer
+      //
+      // Vêm do cliente porque o servidor não carrega o cenário: ele valida
+      // posições contra os limites do mundo e mais nada. Todo mundo calcula a
+      // mesma lista do mesmo GLB, então o pior que um cliente adulterado
+      // consegue é escolher lugares ruins -- não há vantagem a tirar daí, e o
+      // servidor continua sendo quem decide QUANDO e QUAL bônus nasce.
+      if (msg.tipo === "pontos-bonus") {
+        if (!estado.sala || !Array.isArray(msg.lista)) return;
+        if (estado.sala.pontosDeBonus?.length) return;   // o primeiro já mandou
+        const pontos = msg.lista.slice(0, 200).map(ponto).filter(Boolean);
+        if (pontos.length) estado.sala.pontosDeBonus = pontos;
+        return;
+      }
+
+      if (msg.tipo === "pegar-bonus") {
+        const sala = estado.sala;
+        if (!sala?.bonusVivos?.length || sala.fase !== "caca") return;
+        if (estado.perfil?.papel !== "lagartixa" || estado.eliminado) return;
+        const bonus = sala.bonusVivos.find((b) => b.id === msg.id);
+        if (!bonus) return;
+        if (distancia(estado.pos, bonus.p) > BONUS_ALCANCE) return;
+        aplicarBonus(sala, estado, bonus);
+        return;
+      }
+
+      // ---- balão de fala sobre a cabeça
+      //
+      // Não é o chat da sala, que saiu: aqui a frase vira um balão no mundo,
+      // some sozinha e não fica guardada em lugar nenhum. Por isso também não
+      // há histórico -- quem chega depois não tem o que ler, e não deveria.
+      if (msg.tipo === "fala") {
+        if (!estado.sala) return;
+        const agoraF = Date.now();
+        if (agoraF - estado.ultimaFalaEm < FALA_INTERVALO_MS) return;
+        const texto = limpar(msg.texto, FALA_MAX);
+        if (!texto) return;
+        estado.ultimaFalaEm = agoraF;
+        transmitir(estado.sala, {
+          tipo: "fala",
+          id: estado.id,
+          nome: estado.perfil.nome,
+          cor: estado.perfil.cor,
+          texto,
+          em: agoraF,
+        });
+        return;
+      }
+
+      // ---- debater-se para sair de uma armadilha ou de uma rede
+      if (msg.tipo === "debater") {
+        const agoraD = Date.now();
+        if (agoraD >= (estado.presoAte ?? 0)) return;
+        // Limite de apertos contados. Sem ele, um cliente adulterado mandando
+        // mil por segundo sairia no mesmo quadro em que entrou.
+        if (agoraD - estado.ultimoDebateEm < DEBATE_INTERVALO_MS) return;
+        estado.ultimoDebateEm = agoraD;
+
+        const piso = estado.presoDesde + estado.presoTotal * DEBATE_PISO;
+        estado.presoAte = Math.max(piso, estado.presoAte - DEBATE_ALIVIO_MS);
+        enviar(estado.ws, {
+          tipo: "preso",
+          restaMs: Math.max(0, estado.presoAte - agoraD),
+          totalMs: estado.presoTotal,
+        });
+        return;
+      }
+
       if (msg.tipo === "poder") {
         if (!estado.sala) return;
         // Cada papel tem a sua tabela, e o nome do poder decide junto com ela:
@@ -723,6 +913,16 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
           return;
         }
 
+        // A armadura segura um tiro e QUEBRA à vista. Um acerto que não faz
+        // nada pareceria defeito para os dois lados: quem atirou precisa saber
+        // que acertou, e quem levou precisa saber que foi descoberta.
+        if (alvo.escudo) {
+          alvo.escudo = false;
+          alvo.ultimoDanoEm = agoraT;
+          transmitir(estado.sala, { tipo: "escudo-quebrou", alvo: alvo.id });
+          return;
+        }
+
         alvo.vida = Math.max(0, alvo.vida - 1);
         alvo.ultimoDanoEm = agoraT;
         // Sobreviveu ao tiro: sai pingando tinta.
@@ -755,6 +955,8 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
           // "abatido".
           if (alvo.perfil?.papel === "lagartixa") {
             alvo.eliminado = true;
+            estado.pontos += PONTOS_ELIMINACAO;
+            sala.placarSujo = true;
             transmitir(sala, {
               tipo: "eliminado",
               id: alvo.id,
@@ -763,7 +965,12 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
             });
             // Sem lagartixa viva não há o que caçar; deixar o cronômetro
             // correr até o fim seria mandar os caçadores procurarem ninguém.
-            if (!restamLagartixas(sala)) trocarFase(sala, "intervalo", Date.now());
+            if (!restamLagartixas(sala)) {
+              trocarFase(sala, "intervalo", Date.now(), {
+                vencedor: "cacadores",
+                motivo: "Todas as lagartixas foram encontradas.",
+              });
+            }
             return;
           }
 
@@ -810,7 +1017,7 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
       // Os sensores dele saem junto: sem isto, um caçador que fecha a aba
       // deixaria dois apitos tocando pela rodada inteira, sem dono.
       for (const posto of estado.sensores ?? []) {
-        transmitir(sala, { tipo: "sensor-fora", id: posto.id });
+        transmitir(sala, { tipo: "armadilha-fora", id: posto.id });
       }
       estado.sensores.length = 0;
       transmitir(sala, { tipo: "saiu", id: estado.id });
@@ -845,13 +1052,34 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
     if (agora < sala.faseAte) return;
 
     if (sala.fase === "preparo") return trocarFase(sala, "caca", agora);
-    if (sala.fase === "caca") return trocarFase(sala, "intervalo", agora);
+    // O relógio venceu com lagartixa viva: elas ganham. É a única condição de
+    // vitória delas, e é o que dá sentido aos cinco minutos.
+    if (sala.fase === "caca") {
+      return trocarFase(sala, "intervalo", agora, {
+        vencedor: "lagartixas",
+        motivo: "O tempo acabou com lagartixa solta.",
+      });
+    }
     // Fim do intervalo volta para a sala de espera, e não direto para outra
     // rodada: entre uma e outra as pessoas trocam de papel, entram e saem.
     return trocarFase(sala, "espera", agora);
   }
 
-  function trocarFase(sala, fase, agora) {
+  /**
+   * Quem ganha.
+   *
+   * Só há duas maneiras de a caçada acabar, e cada uma tem um dono: se todas
+   * as lagartixas forem encontradas antes do relógio, os caçadores vencem; se
+   * o relógio vencer com uma solta, elas vencem. Não existe empate, e é de
+   * propósito -- num esconde-esconde o empate é sempre a favor de quem se
+   * escondeu, então chamá-lo de vitória delas é mais honesto do que fingir
+   * que ninguém ganhou.
+   *
+   * O resultado é da RODADA. O placar, que atravessa as rodadas, é outra
+   * conta: dá para perder a rodada e ainda liderar a partida por ter assobiado
+   * muito antes de cair.
+   */
+  function trocarFase(sala, fase, agora, resultado = null) {
     const duracao =
       fase === "espera" ? 0
       : fase === "preparo" ? PREPARO_MS
@@ -888,18 +1116,154 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
         j.pingandoAte = 0;
         j.conjurandoAte = 0;
         j.posDaMarca = null;
+        j.escudo = false;
+        j.escala = 1;
+        j.escalaAte = 0;
+        j.canto = null;
+        j.cantoDesde = 0;
       }
       sala.nuvens = [];
+      sala.bonusVivos = [];
+      sala.proximoBonus = 0;
       transmitir(sala, { tipo: "limpar-campo" });
       transmitir(sala, { tipo: "reviver", alvo: null, vida: VIDA_MAXIMA });
     }
+    // O resultado morre com a rodada seguinte: guardar só até a próxima troca
+    // evita que a tela de fim reapareça no começo da caçada seguinte.
+    sala.resultado = fase === "intervalo" ? resultado : null;
     transmitir(sala, {
       tipo: "fase",
       fase,
       restaMs: duracao,
       anfitriao: sala.anfitriao,
       podeIniciar: podeIniciar(sala),
+      resultado: sala.resultado,
     });
+  }
+
+  /** Solta uma onda de bônus, e recolhe os que venceram. */
+  function girarBonus(sala, agora) {
+    sala.bonusVivos = sala.bonusVivos ?? [];
+
+    if (sala.bonusVivos.length) {
+      const vencidos = sala.bonusVivos.filter((b) => agora >= b.expiraEm);
+      for (const b of vencidos) transmitir(sala, { tipo: "bonus-fora", id: b.id });
+      if (vencidos.length) {
+        sala.bonusVivos = sala.bonusVivos.filter((b) => agora < b.expiraEm);
+      }
+      // A próxima onda só é marcada quando a atual esvazia -- por vencimento
+      // ou porque ela pegou tudo.
+      if (!sala.bonusVivos.length) sala.proximoBonus = agora + BONUS_INTERVALO_MS;
+      return;
+    }
+
+    if (!sala.pontosDeBonus?.length) return;
+    if (agora < (sala.proximoBonus ?? 0)) return;
+
+    // Pontos distintos, sorteados sem repetir: dois bônus no mesmo lugar
+    // desperdiçariam metade da onda.
+    const sobrando = [...sala.pontosDeBonus];
+    const tipos = [...TIPOS_DE_BONUS];
+    const quantos = Math.min(BONUS_POR_ONDA, sobrando.length, tipos.length);
+
+    for (let i = 0; i < quantos; i++) {
+      const p = sobrando.splice(Math.floor(Math.random() * sobrando.length), 1)[0];
+      // Um de cada tipo por onda: sorteando com repetição, uma onda inteira de
+      // armadura tiraria dela justamente a escolha que a onda existe para dar.
+      const qual = tipos.splice(Math.floor(Math.random() * tipos.length), 1)[0];
+      sala.contaDeBonus = (sala.contaDeBonus ?? 0) + 1;
+      const bonus = {
+        id: `b${sala.contaDeBonus}`,
+        p: [...p],
+        qual,
+        expiraEm: agora + BONUS_VIDA_MS,
+      };
+      sala.bonusVivos.push(bonus);
+      transmitir(sala, {
+        tipo: "bonus", id: bonus.id, p: bonus.p, qual, duracaoMs: BONUS_VIDA_MS,
+      });
+      // Cada um se anuncia de onde caiu. Como o som é posicional, ninguém ouve
+      // os três: cada pessoa ouve os que estão perto dela, que é a informação
+      // que interessa.
+      for (const j of sala.jogadores.values()) {
+        if (j.ws.readyState !== j.ws.OPEN) continue;
+        enviar(j.ws, { tipo: "assobio", p: bonus.p, falso: true });
+      }
+    }
+  }
+
+  function aplicarBonus(sala, bicho, bonus) {
+    const agora = Date.now();
+    bicho.pontos += BONUS_PONTOS;
+    sala.placarSujo = true;
+
+    let efeito = bonus.qual;
+    if (bonus.qual === "silencio") {
+      // Paga na moeda da imobilidade: em vez de ficar parada para adiar o
+      // assobio, ela anda até o bônus e adia mais do que ficaria parada.
+      bicho.proximoAssobio = Math.max(agora + 1000, (bicho.proximoAssobio || agora) + BONUS_SILENCIO_MS);
+    } else if (bonus.qual === "armadura") {
+      bicho.escudo = true;
+    } else {
+      // Surpresa: o servidor sorteia, e é ele quem sabe. Nada no pacote que
+      // cria o bônus diz o que vai sair -- é isso que faz pegá-lo ser uma
+      // aposta, e a aposta é o que tira a lagartixa do canto.
+      efeito = Math.random() < 0.5 ? "encolher" : "crescer";
+      bicho.escala = efeito === "encolher" ? ESCALA_PEQUENA : ESCALA_GRANDE;
+      bicho.escalaAte = agora + BONUS_TAMANHO_MS;
+    }
+
+    enviar(bicho.ws, {
+      tipo: "bonus-meu", qual: bonus.qual, efeito,
+      duracaoMs: bonus.qual === "surpresa" ? BONUS_TAMANHO_MS : 0,
+    });
+    transmitir(sala, { tipo: "bonus-pego", id: bonus.id, de: bicho.id, qual: bonus.qual });
+    // Sai só ELE. Os irmãos de onda continuam de pé -- dá para pegar dois se
+    // correr, e correr é exatamente o que se quer dela.
+    sala.bonusVivos = sala.bonusVivos.filter((b) => b.id !== bonus.id);
+    if (!sala.bonusVivos.length) sala.proximoBonus = agora + BONUS_INTERVALO_MS;
+  }
+
+  /** Devolve o tamanho normal quando o efeito vence. */
+  function girarTamanhos(sala, agora) {
+    for (const j of sala.jogadores.values()) {
+      if (!j.escalaAte || agora < j.escalaAte) continue;
+      j.escalaAte = 0;
+      j.escala = 1;
+      enviar(j.ws, { tipo: "bonus-meu", qual: "surpresa", efeito: "normal", duracaoMs: 0 });
+    }
+  }
+
+  /**
+   * O alcance do assobio DELA, agora.
+   *
+   * Três coisas o esticam: o tempo de caçada (a rede se fechando), mofar no
+   * mesmo canto, e nada mais. Encolher não entra de propósito -- seria punir
+   * duas vezes o mesmo sorteio.
+   */
+  function alcanceDoAssobio(sala, bicho, agora) {
+    let alcance = ASSOBIO_ALCANCE;
+
+    const decorrido = CACA_MS - Math.max(0, sala.faseAte - agora);
+    const andamento = Math.min(1, Math.max(0, decorrido / CACA_MS));
+    alcance += CERCO_ALCANCE_EXTRA * andamento;
+
+    if (bicho.cantoDesde && agora - bicho.cantoDesde > MOFO_MS) {
+      alcance += MOFO_ALCANCE_EXTRA;
+    }
+    return alcance;
+  }
+
+  /** O placar da sala, do maior para o menor. */
+  function placarDe(sala) {
+    return [...sala.jogadores.values()]
+      .map((j) => ({
+        id: j.id,
+        nome: j.perfil?.nome ?? "",
+        papel: j.perfil?.papel,
+        pontos: j.pontos ?? 0,
+      }))
+      .sort((a, b) => b.pontos - a.pontos);
   }
 
   function restamLagartixas(sala) {
@@ -943,7 +1307,11 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
     for (const bicho of sala.jogadores.values()) {
       if (bicho.perfil?.papel !== "lagartixa" || bicho.vida <= 0 || bicho.eliminado) continue;
       if (!bicho.proximoAssobio) {
-        bicho.proximoAssobio = agora + sorteioAssobio();
+        // No terço final o assobio sai mais vezes: é a outra metade do cerco.
+      const decorrido = CACA_MS - Math.max(0, sala.faseAte - agora);
+      const andamento = Math.min(1, Math.max(0, decorrido / CACA_MS));
+      const pressa = 1 - (1 - CERCO_PRESSA) * Math.max(0, (andamento - 0.6) / 0.4);
+      bicho.proximoAssobio = agora + sorteioAssobio() * pressa;
         bicho.paradaDesde = agora;
         continue;
       }
@@ -964,14 +1332,22 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
       bicho.paradaDesde = agora;
 
       if (agora < bicho.proximoAssobio) continue;
-      bicho.proximoAssobio = agora + sorteioAssobio();
+      // No terço final o assobio sai mais vezes: é a outra metade do cerco.
+      const decorrido = CACA_MS - Math.max(0, sala.faseAte - agora);
+      const andamento = Math.min(1, Math.max(0, decorrido / CACA_MS));
+      const pressa = 1 - (1 - CERCO_PRESSA) * Math.max(0, (andamento - 0.6) / 0.4);
+      bicho.proximoAssobio = agora + sorteioAssobio() * pressa;
       bicho.silencioMs = 0;
+      // Assobiou e continua viva: marca. O ponto e a entrega são a mesma coisa.
+      bicho.pontos += PONTOS_ASSOBIO;
+      sala.placarSujo = true;
 
+      const alcance = alcanceDoAssobio(sala, bicho, agora);
       for (const ouvinte of sala.jogadores.values()) {
         if (ouvinte.ws.readyState !== ouvinte.ws.OPEN) continue;
         // A própria lagartixa sempre ouve: precisa saber que acabou de se
         // entregar, senão não tem como decidir mudar de esconderijo.
-        if (ouvinte.id !== bicho.id && distancia(ouvinte.pos, bicho.pos) > ASSOBIO_ALCANCE) {
+        if (ouvinte.id !== bicho.id && distancia(ouvinte.pos, bicho.pos) > alcance) {
           continue;
         }
         enviar(ouvinte.ws, { tipo: "assobio", id: bicho.id });
@@ -1079,14 +1455,14 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
       return true;
     }
 
-    if (msg.qual === "sensor") {
+    if (msg.qual === "armadilha") {
       const alvo = ponto(msg.p);
       if (!alvo || distancia(alvo, estado.pos) > regra.alcance) return false;
       // Passando do limite, o mais antigo sai. Travar o poder quando os dois
       // estão postos obrigaria a lembrar onde foram largados para recolher.
       if (estado.sensores.length >= regra.maximo) {
         const velho = estado.sensores.shift();
-        transmitir(sala, { tipo: "sensor-fora", id: velho.id });
+        transmitir(sala, { tipo: "armadilha-fora", id: velho.id });
       }
       sala.proximoSensor = (sala.proximoSensor ?? 0) + 1;
       const posto = {
@@ -1102,7 +1478,7 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
       // Visível para TODO MUNDO, de propósito. Um sensor invisível seria uma
       // armadilha sem resposta; à vista, ele nega a área -- que é o que se
       // queria dele -- e a lagartixa ainda pode dar a volta.
-      transmitir(sala, { tipo: "sensor", id: posto.id, p: alvo, dono: estado.id });
+      transmitir(sala, { tipo: "armadilha", id: posto.id, p: alvo, dono: estado.id });
       return true;
     }
 
@@ -1112,7 +1488,7 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
       if (distancia(alvo.pos, estado.pos) > regra.alcance) return false;
       // Não tira vida: prende. É a resposta ao arranque, e por isso ela
       // recompensa mirar na frente dela em vez de perseguir.
-      alvo.presoAte = agora + REDE_MS;
+      prender(alvo, agora, REDE_MS);
       transmitir(sala, {
         tipo: "rede", de: estado.id, alvo: alvo.id, duracaoMs: REDE_MS,
       });
@@ -1202,20 +1578,64 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
     }
   }
 
-  /** Sensores: apitam quando algo se mexe perto, sem dizer o quê. */
-  function ouvirSensores(sala, agora) {
+  /** Prende alguém, guardando o começo e o total para o debate ter piso. */
+  function prender(quem, agora, duracaoMs) {
+    quem.presoDesde = agora;
+    quem.presoTotal = duracaoMs;
+    quem.presoAte = agora + duracaoMs;
+    enviar(quem.ws, { tipo: "preso", restaMs: duracaoMs, totalMs: duracaoMs });
+  }
+
+  /**
+   * Armadilhas: apitam de longe e FECHAM de perto.
+   *
+   * O apito continua sendo o aviso -- ele diz que algo se moveu num raio de
+   * seis metros, sem dizer o quê. O fechamento é outra coisa: encostar no
+   * aparelho prende, e a armadilha se gasta nisso. É o que faz dela armadilha
+   * e não alarme: um aparelho com essa cara, largado no chão, prometia agarrar
+   * quem pisasse, e não prometia à toa.
+   *
+   * Ela é visível para os dois lados desde sempre, e é isso que torna o
+   * gatilho curto justo: dá para desviar. Uma armadilha invisível seria sorte.
+   */
+  function verArmadilhas(sala, agora) {
+    const regra = PODERES_CACADOR.armadilha;
     for (const dono of sala.jogadores.values()) {
       if (!dono.sensores?.length) continue;
-      for (const posto of dono.sensores) {
-        if (agora < posto.prontoEm) continue;
-        if (agora - posto.ultimoApitoEm < SENSOR_INTERVALO_MS) continue;
 
+      for (let i = dono.sensores.length - 1; i >= 0; i--) {
+        const posto = dono.sensores[i];
+        if (agora < posto.prontoEm) continue;
+
+        // 1) Fechar: alguém encostou. Vale mesmo parada -- ela teve de andar
+        // até ali, e uma armadilha que solta quem congela em cima dela seria
+        // uma armadilha que não funciona.
+        let pegou = null;
+        for (const bicho of sala.jogadores.values()) {
+          if (bicho.perfil?.papel !== "lagartixa" || bicho.eliminado) continue;
+          if (agora < (bicho.presoAte ?? 0)) continue;   // já está presa
+          if (distancia(bicho.pos, posto.p) <= regra.gatilho) { pegou = bicho; break; }
+        }
+        if (pegou) {
+          prender(pegou, agora, ARMADILHA_PRESO_MS);
+          // Some ao disparar: uma armadilha que fica prendendo para sempre
+          // trancaria um corredor inteiro pela rodada toda.
+          dono.sensores.splice(i, 1);
+          transmitir(sala, {
+            tipo: "armadilha-fechou", id: posto.id, p: posto.p,
+            alvo: pegou.id, duracaoMs: ARMADILHA_PRESO_MS,
+          });
+          continue;
+        }
+
+        // 2) Apitar: algo se moveu por perto, sem dizer o quê.
+        if (agora - posto.ultimoApitoEm < SENSOR_INTERVALO_MS) continue;
         let mexeu = false;
         for (const bicho of sala.jogadores.values()) {
           if (bicho.perfil?.papel !== "lagartixa" || bicho.eliminado) continue;
-          if (distancia(bicho.pos, posto.p) > PODERES_CACADOR.sensor.raio) continue;
-          // De novo: só o que se MOVE. Um sensor que apita com quem está
-          // parada seria um detector de presença, e acabaria com o esconderijo.
+          if (distancia(bicho.pos, posto.p) > regra.raio) continue;
+          // Só o que se MOVE. Um aparelho que apita com quem está parada seria
+          // um detector de presença, e acabaria com o esconderijo.
           if (agora - (bicho.ultimoMovimentoEm ?? 0) > 500) continue;
           mexeu = true;
           break;
@@ -1223,12 +1643,12 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
         if (!mexeu) continue;
 
         posto.ultimoApitoEm = agora;
-        // O apito vai para todos os caçadores, não só para o dono: o sensor é
-        // do time, e avisar só quem largou faria dois caçadores tropeçarem.
+        // O apito vai para todos os caçadores, não só para o dono: a armadilha
+        // é do time, e avisar só quem largou faria dois caçadores tropeçarem.
         for (const j of sala.jogadores.values()) {
           if (j.ws.readyState !== j.ws.OPEN) continue;
           if (j.perfil?.papel === "lagartixa" && !j.eliminado) continue;
-          enviar(j.ws, { tipo: "sensor-apitou", id: posto.id, p: posto.p });
+          enviar(j.ws, { tipo: "armadilha-apitou", id: posto.id, p: posto.p });
         }
       }
     }
@@ -1287,6 +1707,7 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
         y: j.yaw,
         a: j.anim,
         e: j.escondido,
+        s: j.escala !== 1 ? j.escala : undefined,
         c: j.cima,
         f: j.frente,
         // Para assistir pelos olhos de um caçador não basta a posição e o giro
@@ -1297,10 +1718,19 @@ export function criarServidorMultiplayer(servidorHttp, { caminho = "/ws" } = {})
       // Filtrar aqui, e não no navegador, é o ponto: mandar a posição e pedir
       // que o cliente não desenhe deixaria a lagartixa visível para qualquer um
       // com o inspetor aberto. O que não é enviado não pode ser trapaceado.
+      // O placar só viaja quando muda. Mandá-lo a 15 Hz junto dos estados
+      // seria repetir os mesmos números centenas de vezes por rodada.
+      if (sala.placarSujo) {
+        sala.placarSujo = false;
+        transmitir(sala, { tipo: "placar", lista: placarDe(sala) });
+      }
+
       if (sala.fase === "caca") {
+        girarBonus(sala, agora);
+        girarTamanhos(sala, agora);
         assobiar(sala, agora);
         marcarPegadas(sala, agora);
-        ouvirSensores(sala, agora);
+        verArmadilhas(sala, agora);
       }
 
       const ocultar = escondeLagartixas(sala);

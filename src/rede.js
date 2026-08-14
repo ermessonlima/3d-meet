@@ -54,9 +54,18 @@ export class Rede {
     // de lagartixa nunca chega a atribuir metade deles.
     this.aoBatida = () => {};
     this.aoBatidaSentida = () => {};
-    this.aoSensor = () => {};
-    this.aoSensorFora = () => {};
-    this.aoSensorApitou = () => {};
+    this.aoArmadilha = () => {};
+    this.aoArmadilhaFora = () => {};
+    this.aoArmadilhaApitou = () => {};
+    this.aoArmadilhaFechou = () => {};
+    this.aoPreso = () => {};
+    this.aoPlacar = () => {};
+    this.aoBonus = () => {};
+    this.aoBonusFora = () => {};
+    this.aoBonusPego = () => {};
+    this.aoBonusMeu = () => {};
+    this.aoEscudoQuebrou = () => {};
+    this.aoEscolherPapel = () => {};
     this.aoRede = () => {};
     this.aoPo = () => {};
     this.aoMarcas = () => {};
@@ -134,9 +143,18 @@ export class Rede {
           // ---- poderes de quem caça
           case "batida": this.aoBatida(msg); break;
           case "batida-sentida": this.aoBatidaSentida(msg); break;
-          case "sensor": this.aoSensor(msg); break;
-          case "sensor-fora": this.aoSensorFora(msg); break;
-          case "sensor-apitou": this.aoSensorApitou(msg); break;
+          case "armadilha": this.aoArmadilha(msg); break;
+          case "armadilha-fora": this.aoArmadilhaFora(msg); break;
+          case "armadilha-apitou": this.aoArmadilhaApitou(msg); break;
+          case "armadilha-fechou": this.aoArmadilhaFechou(msg); break;
+          case "preso": this.aoPreso(msg); break;
+          case "placar": this.aoPlacar(msg); break;
+          case "bonus": this.aoBonus(msg); break;
+          case "bonus-fora": this.aoBonusFora(msg); break;
+          case "bonus-pego": this.aoBonusPego(msg); break;
+          case "bonus-meu": this.aoBonusMeu(msg); break;
+          case "escudo-quebrou": this.aoEscudoQuebrou(msg); break;
+          case "escolher-papel": this.aoEscolherPapel(msg); break;
           case "rede": this.aoRede(msg); break;
           case "po": this.aoPo(msg); break;
           case "marcas": this.aoMarcas(msg); break;
@@ -208,10 +226,6 @@ export class Rede {
     );
   }
 
-  falar(texto) {
-    if (!this.conectado) return;
-    this.ws.send(JSON.stringify({ tipo: "fala", texto }));
-  }
 
   /** Envelope de negociação WebRTC para UM par. O servidor só repassa. */
   enviarSinal(para, dados) {
@@ -236,8 +250,18 @@ export class Rede {
     if (this.conectado) this.ws.send(JSON.stringify({ tipo: "destravar", motivo }));
   }
 
+  /** Um aperto de quem está presa. O servidor conta e limita. */
+  debater() {
+    if (this.conectado) this.ws.send(JSON.stringify({ tipo: "debater" }));
+  }
+
   usarPoder(qual, extras = {}) {
     if (this.conectado) this.ws.send(JSON.stringify({ tipo: "poder", qual, ...extras }));
+  }
+
+  /** Zera o placar e devolve a sala à escolha de personagem. Só o anfitrião. */
+  novaPartida() {
+    if (this.conectado) this.ws.send(JSON.stringify({ tipo: "nova-partida" }));
   }
 
   iniciarRodada() {
@@ -286,8 +310,28 @@ export class Rede {
     }));
   }
 
+  /** Onde os bônus podem nascer. Só o primeiro da sala é aceito. */
+  enviarPontosDeBonus(lista) {
+    if (!this.conectado) return;
+    this.ws.send(JSON.stringify({ tipo: "pontos-bonus", lista }));
+  }
+
+  /** Encostou num bônus. O servidor confere a distância. */
+  pegarBonus(id) {
+    if (this.conectado) this.ws.send(JSON.stringify({ tipo: "pegar-bonus", id }));
+  }
+
+  /** Manda uma frase para o balão sobre a cabeça. Não é chat: não fica salvo. */
+  falar(texto) {
+    if (!this.conectado) return;
+    this.ws.send(JSON.stringify({ tipo: "fala", texto }));
+  }
+
   desconectar() {
     this.conectado = false;
+    // A sala vai junto: deixá-la preenchida faz o resto do jogo achar que
+    // ainda estamos dentro de uma que já foi fechada.
+    this.sala = null;
     this.ws?.close();
   }
 }

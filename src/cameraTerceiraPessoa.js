@@ -2,6 +2,18 @@ import * as THREE from "three";
 
 const PITCH_MIN = -0.30;   // olhando de baixo para cima
 const PITCH_MAX = 1.15;    // quase de cima
+
+/**
+ * Em primeira pessoa o pescoço vai quase ao teto e quase ao chão.
+ *
+ * Os limites de cima são da câmera de TERCEIRA pessoa, e existem por um motivo
+ * geométrico: ela orbita o corpo, então inclinar demais para cima enfia a
+ * lente no chão. Em primeira pessoa não há órbita -- a lente está nos olhos --
+ * e o limite de 17° para cima só atrapalhava: a lagartixa escala parede e
+ * teto, e o caçador não conseguia olhar para onde ela estava.
+ */
+const PITCH_MIN_1P = -1.45;   // ~83° para cima
+const PITCH_MAX_1P = 1.45;    // ~83° para baixo
 // Quanto a lente pode recuar por segundo ao encontrar obstáculo.
 const VEL_ENCOLHER = 18;
 const DIST_MIN = 1.4;
@@ -338,7 +350,9 @@ export class CameraTerceiraPessoa {
     const sens = 0.0032;
     this.yaw -= evento.movementX * sens;
     this.pitch += evento.movementY * sens;
-    this.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, this.pitch));
+    const min = this.primeiraPessoa ? PITCH_MIN_1P : PITCH_MIN;
+    const max = this.primeiraPessoa ? PITCH_MAX_1P : PITCH_MAX;
+    this.pitch = Math.max(min, Math.min(max, this.pitch));
   }
 
   _aoRolar(evento) {
